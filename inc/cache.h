@@ -5,12 +5,19 @@
 #include <list>
 #include <string>
 #include <vector>
+#include <set>
+#include <sstream>
 
 #include "champsim.h"
 #include "delay_queue.hpp"
 #include "memory_class.h"
 #include "ooo_cpu.h"
 #include "operable.h"
+#include "tracer.h"
+#include "hawkeye_predictor.h"
+#define HARMONY_PREDICTION false
+#define ACCURACY_THRESHOLD false
+#define COMBINED_HARMONY_ACCURACY false
 
 // virtual address space prefetching
 #define VA_PREFETCH_TRANSLATION_LATENCY 2
@@ -22,6 +29,7 @@ class CACHE : public champsim::operable, public MemoryRequestConsumer, public Me
 public:
   uint32_t cpu;
   const std::string NAME;
+  std::string L2_NAME;
   const uint32_t NUM_SET, NUM_WAY, WQ_SIZE, RQ_SIZE, PQ_SIZE, MSHR_SIZE;
   const uint32_t HIT_LATENCY, FILL_LATENCY, OFFSET_BITS;
   std::vector<BLOCK> block{NUM_SET * NUM_WAY};
@@ -33,8 +41,17 @@ public:
   bool ever_seen_data = false;
   const unsigned pref_activate_mask = (1 << static_cast<int>(LOAD)) | (1 << static_cast<int>(PREFETCH));
 
+  // for finding median of llc average miss latency
+  vector<uint64_t> miss_latency_vector;
+
   // prefetch stats
   uint64_t pf_requested = 0, pf_issued = 0, pf_useful = 0, pf_useless = 0, pf_fill = 0;
+
+  // prefetch address suppression
+  uint64_t ips[3] = {4297696, 4292208, 4297715};
+  std::set<uint64_t> pf_addr_suppression;
+  std::set<uint64_t> ip_suppression;
+  uint64_t pf_suppressed = 0;
 
   // queues
   champsim::delay_queue<PACKET> RQ{RQ_SIZE, HIT_LATENCY}, // read queue
@@ -51,6 +68,7 @@ public:
            WQ_FULL = 0, WQ_FORWARD = 0, WQ_TO_CACHE = 0;
 
   uint64_t total_miss_latency = 0;
+  uint64_t total_miss = 0;
 
   // functions
   int add_rq(PACKET* packet) override;
@@ -64,13 +82,16 @@ public:
 
   uint32_t get_occupancy(uint8_t queue_type, uint64_t address) override;
   uint32_t get_size(uint8_t queue_type, uint64_t address) override;
+  uint32_t get_bank_occupancy(uint8_t queue_type, uint64_t address) override;
 
   uint32_t get_set(uint64_t address);
   uint32_t get_way(uint64_t address, uint32_t set);
 
   int invalidate_entry(uint64_t inval_addr);
-  int prefetch_line(uint64_t pf_addr, bool fill_this_level, uint32_t prefetch_metadata);
-  int prefetch_line(uint64_t ip, uint64_t base_addr, uint64_t pf_addr, bool fill_this_level, uint32_t prefetch_metadata); // deprecated
+  int prefetch_line(uint64_t pf_addr, bool fill_this_level, uint32_t prefetch_metadata, uint64_t ip, uint64_t prefetch_trigger_addr, uint64_t prefetch_offset, uint64_t score);
+  int prefetch_line(uint64_t ip, uint64_t base_addr, uint64_t pf_addr, bool fill_this_level, uint32_t prefetch_metadata, uint64_t prefetch_trigger_addr, uint64_t prefetch_offset, uint64_t score); // deprecated
+
+  void inform_tlb_eviction(uint64_t insert_page_addr, uint64_t evict_page_addr);
 
   void add_mshr(PACKET* packet);
   void va_translate_prefetches();
@@ -85,6 +106,9 @@ public:
   bool filllike_miss(std::size_t set, std::size_t way, PACKET& handle_pkt);
 
   bool should_activate_prefetcher(int type);
+
+  void set_prefetcher_degree(int degree, int cpu);
+  int get_prefetcher_degree(int cpu);
 
   void print_deadlock() override;
 
@@ -102,6 +126,14 @@ public:
         MAX_WRITE(max_write), prefetch_as_load(pref_load), match_offset_bits(wq_full_addr), virtual_prefetch(va_pref), pref_activate_mask(pref_act_mask),
         repl_type(repl), pref_type(pref)
   {
+    std::stringstream ss;
+    ss << "cpu" << cpu << "_L2C";
+    L2_NAME = ss.str();
+    cout << "L2 NAME: " << L2_NAME << endl;
+    // ip_suppression.insert(4297696);
+    // ip_suppression.insert(4292208);
+    // ip_suppression.insert(4297715);
+
   }
 };
 

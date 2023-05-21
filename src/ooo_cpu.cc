@@ -127,7 +127,7 @@ void O3_CPU::init_instruction(ooo_model_instr arch_instr)
 
   if (arch_instr.num_mem_ops > 0)
     arch_instr.is_memory = 1;
-
+    
   // determine what kind of branch this is, if any
   if (!reads_sp && !reads_flags && writes_ip && !reads_other) {
     // direct jump
@@ -483,7 +483,7 @@ void O3_CPU::dispatch_instruction()
     throw champsim::deadlock{cpu};
 }
 
-int O3_CPU::prefetch_code_line(uint64_t pf_v_addr) { return static_cast<CACHE*>(L1I_bus.lower_level)->prefetch_line(0, pf_v_addr, pf_v_addr, true, 0); }
+int O3_CPU::prefetch_code_line(uint64_t pf_v_addr) { return static_cast<CACHE*>(L1I_bus.lower_level)->prefetch_line(0, pf_v_addr, pf_v_addr, true, 0, 0, 0); }
 
 void O3_CPU::schedule_instruction()
 {

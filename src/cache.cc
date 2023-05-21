@@ -7,14 +7,30 @@
 #include "champsim_constants.h"
 #include "util.h"
 #include "vmem.h"
+#include "fdp_control.h"
+#include "prefetch_ip_suppress_filter.h"
+#include "perceptron_filter_feature_test.h"
+#include "decision_tree.h"
 
 #ifndef SANITY_CHECK
 #define NDEBUG
 #endif
 
+Tracer tracer;
 extern VirtualMemory vmem;
 extern uint8_t warmup_complete[NUM_CPUS];
-
+HAWKEYE_PC_PREDICTOR* prefetch_predictor;
+FDP_Control fdp_control;
+Prefetch_Filter pf_filter;
+Prefetch_Feature_Filter pf_feature_filter;
+HAWKEYE_REUSE_PREDICTOR* prefetch_reuse_predictor;
+extern bool training_complete;
+double accuracy_threshold = 0.95;
+vector<uint64_t> history[NUM_CPUS];
+Control_Response control_response;
+Decision_Tree_Predictor decision_tree_predictor;
+// PERCEPTRON_ PERC_;
+#define HISTORY_LEN 3
 void CACHE::handle_fill()
 {
   while (writes_available_this_cycle > 0) {
@@ -29,9 +45,43 @@ void CACHE::handle_fill()
     auto set_end = std::next(set_begin, NUM_WAY);
     auto first_inv = std::find_if_not(set_begin, set_end, is_valid<BLOCK>());
     uint32_t way = std::distance(set_begin, first_inv);
-    if (way == NUM_WAY)
+    if (way == NUM_WAY) {
       way = impl_replacement_find_victim(fill_mshr->cpu, fill_mshr->instr_id, set, &block.data()[set * NUM_WAY], fill_mshr->ip, fill_mshr->address,
                                          fill_mshr->type);
+      if (PERCEPTRON_IP_FILTER) {
+        if (fill_mshr->type == PREFETCH) {
+          pf_filter.degree_pollution_tracker_map[CACHE_LINE(block.data()[set * NUM_WAY + way].address)] = {fill_mshr->prefetch_degree, true};
+        }
+        else {
+          pf_filter.degree_pollution_tracker_map[CACHE_LINE(block.data()[set * NUM_WAY + way].address)] = {fill_mshr->prefetch_degree, false};
+        }
+        if (NAME == L2_NAME && !block.data()[set*NUM_WAY + way].prefetch_until_evict && fill_mshr->type == PREFETCH) {
+            pf_filter.in_cache_pollution_map[CACHE_LINE(block.data()[set * NUM_WAY + way].address)] = {CACHE_LINE(fill_mshr->address), true};        
+        }
+      }
+      if (FEATURE_TEST) {
+        if (fill_mshr->type == PREFETCH) {
+          pf_feature_filter.pollution_map[CACHE_LINE(block.data()[set * NUM_WAY + way].address)] = true;
+          pf_feature_filter.ip_pollution_map_tracker[CACHE_LINE(block.data()[set * NUM_WAY + way].address)] = {fill_mshr->ip, true};
+        }
+        else {
+          pf_feature_filter.pollution_map[CACHE_LINE(block.data()[set * NUM_WAY + way].address)] = false;
+          pf_feature_filter.ip_pollution_map_tracker[CACHE_LINE(block.data()[set * NUM_WAY + way].address)] = {fill_mshr->ip, true};
+        }
+        pf_feature_filter.num_useful_blocks_evicted++;
+      }
+    }
+    if (PERCEPTRON_REJECT_CACHE) {
+      if (PERCEPTRON_REJECT_CACHE_LOGGING) {
+          cout << "evicting from reject cache" << endl;
+          pf_filter.print_reject_cache(set);
+      }
+      pf_filter.evict_victim_reject_cache(set);
+      if (PERCEPTRON_REJECT_CACHE_LOGGING) {
+          pf_filter.print_reject_cache(set);
+      }
+      
+    }
 
     bool success = filllike_miss(set, way, *fill_mshr);
     if (!success)
@@ -86,9 +136,33 @@ void CACHE::handle_writeback()
         auto set_end = std::next(set_begin, NUM_WAY);
         auto first_inv = std::find_if_not(set_begin, set_end, is_valid<BLOCK>());
         way = std::distance(set_begin, first_inv);
-        if (way == NUM_WAY)
+        if (way == NUM_WAY) {
           way = impl_replacement_find_victim(handle_pkt.cpu, handle_pkt.instr_id, set, &block.data()[set * NUM_WAY], handle_pkt.ip, handle_pkt.address,
                                              handle_pkt.type);
+          if (PERCEPTRON_IP_FILTER) {
+            if (handle_pkt.type == PREFETCH) {
+              pf_filter.degree_pollution_tracker_map[CACHE_LINE(block.data()[set * NUM_WAY + way].address)] = {handle_pkt.prefetch_degree, true};
+            }
+            else {
+              pf_filter.degree_pollution_tracker_map[CACHE_LINE(block.data()[set * NUM_WAY + way].address)] = {handle_pkt.prefetch_degree, false};
+            }
+            if (NAME == L2_NAME && !block.data()[set*NUM_WAY + way].prefetch_until_evict && handle_pkt.type == PREFETCH) {
+              pf_filter.in_cache_pollution_map[CACHE_LINE(block.data()[set * NUM_WAY + way].address)] = {CACHE_LINE(handle_pkt.address), true};    
+            }
+          }
+
+          if (FEATURE_TEST) {
+            if (handle_pkt.type == PREFETCH) {
+              pf_feature_filter.pollution_map[CACHE_LINE(block.data()[set * NUM_WAY + way].address)] = true;
+              pf_feature_filter.ip_pollution_map_tracker[CACHE_LINE(block.data()[set * NUM_WAY + way].address)] = {handle_pkt.ip, true};
+            }
+            else {
+              pf_feature_filter.pollution_map[CACHE_LINE(block.data()[set * NUM_WAY + way].address)] = false;
+              pf_feature_filter.ip_pollution_map_tracker[CACHE_LINE(block.data()[set * NUM_WAY + way].address)] = {handle_pkt.ip, true};
+            }
+            pf_feature_filter.num_useful_blocks_evicted++;
+          }
+        }
 
         success = filllike_miss(set, way, handle_pkt);
       }
@@ -120,14 +194,121 @@ void CACHE::handle_read()
     uint32_t set = get_set(handle_pkt.address);
     uint32_t way = get_way(handle_pkt.address, set);
 
+    BLOCK& fill_block = block[set * NUM_WAY + way];
+
     if (way < NUM_WAY) // HIT
     {
       readlike_hit(set, way, handle_pkt);
     } else {
       bool success = readlike_miss(handle_pkt);
-      if (!success)
+      if (!success) {
         return;
-    }
+      }
+      else {
+
+        // check for cache pollution
+        // cout << "fill block evicted demand address: " << (fill_block.evicted_demand_address) << endl;
+        // cout << "handle pkt address: " << CACHE_LINE(handle_pkt.address) << endl;
+        if (NAME == L2_NAME && PERCEPTRON_IP_FILTER && 
+          pf_filter.in_cache_pollution_map.find(CACHE_LINE(handle_pkt.address)) != pf_filter.in_cache_pollution_map.end() &&
+          pf_filter.in_cache_pollution_map[CACHE_LINE(handle_pkt.address)].second) {
+            uint64_t polluting_pf_addr = pf_filter.in_cache_pollution_map[CACHE_LINE(handle_pkt.address)].first;
+            pf_filter.pf_addr_pollution_map[polluting_pf_addr] = true;
+          // pf_filter.train(pf_filter.in_cache_pollution_map[CACHE_LINE(handle_pkt.address)].first, false, false, false, true, 1);
+          pf_filter.in_cache_pollution_map[CACHE_LINE(handle_pkt.address)] = {0, false};
+        }
+
+        //  if (NAME == "cpu0_L2C" && PERCEPTRON_IP_FILTER && 
+        //   fill_block.evicted_demand_address == CACHE_LINE(handle_pkt.address)) {
+        //   cout << "pollution detected!" << endl;
+        //   fill_block.pollution = true;
+        // }
+
+        // reject table
+        if (PERCEPTRON_IP_FILTER && (PERCEPTRON_HISTORY || PERCEPTRON_DRAM_AVAILABILITY)) {
+          if (PERCEPTRON_REJECT_TABLE) {
+            if (pf_filter.check_reject_table(CACHE_LINE(handle_pkt.address))) {
+              if (PERCEPTRON_DRAM_AVAILABILITY) {
+                if (PERCEPTRON_REJECT_CACHE_LOGGING) {
+                  cout << "training from reject table" << endl;
+                }
+                pf_filter.train(handle_pkt.ip, true, CACHE_LINE(handle_pkt.address));
+
+              }
+              else if (PERCEPTRON_HISTORY) {
+                pf_filter.train(CACHE_LINE(handle_pkt.address), true, true, false, false, false, true, 1);
+              }
+              pf_filter.erase_reject_table(CACHE_LINE(handle_pkt.address));
+            }
+          }
+          else if (PERCEPTRON_DIRECT_MAPPED_REJECT_TABLE) {
+            if (pf_filter.check_direct_mapped_reject_table(CACHE_LINE(handle_pkt.address))) {
+              if (PERCEPTRON_DRAM_AVAILABILITY) {
+                pf_filter.train(CACHE_LINE(handle_pkt.address), true, CACHE_LINE(handle_pkt.address));
+              }
+              else if (PERCEPTRON_HISTORY) {
+                pf_filter.train(CACHE_LINE(handle_pkt.address), true, true, false, false, false, true, 1);
+              }
+              pf_filter.erase_direct_mapped_reject_table(CACHE_LINE(handle_pkt.address));
+            }
+          }
+          else if (PERCEPTRON_REJECT_CACHE) {
+            if (pf_filter.check_reject_cache(get_set(handle_pkt.address), CACHE_LINE(handle_pkt.address))) {
+              if (PERCEPTRON_REJECT_CACHE_LOGGING) {
+                cout << "set: " << get_set(handle_pkt.address) << " address: " << handle_pkt.address << endl;
+                pf_filter.print_reject_cache(get_set(handle_pkt.address));
+              }
+              if (REJECT_CACHE_TRAIN_LOGGING) {
+                cout << "training from reject cache!" << endl;
+                cout << "set: " << get_set(handle_pkt.address) << " address: " << handle_pkt.address << endl;
+                pf_filter.print_reject_cache(get_set(handle_pkt.address));
+              }
+              pf_filter.train(CACHE_LINE(handle_pkt.address), true, true, false, false, false, true, 1);
+              // pf_filter.train(handle_pkt.address, true);
+              pf_filter.erase_reject_cache(get_set(handle_pkt.address), CACHE_LINE(handle_pkt.address));
+            }
+          }
+
+          pf_filter.demand_miss_interval_counter++;
+          pf_filter.demand_miss_total++;
+
+
+          
+        }
+        if (FEATURE_TEST) {
+          if (pf_feature_filter.pollution_map.find(CACHE_LINE(handle_pkt.address)) != pf_feature_filter.pollution_map.end() 
+                && pf_feature_filter.pollution_map[CACHE_LINE(handle_pkt.address)]) {
+                pf_feature_filter.pollution_interval_counter++;
+                pf_feature_filter.pollution_map[CACHE_LINE(handle_pkt.address)] = false;
+          }
+          if (pf_feature_filter.ip_pollution_map_tracker.find(CACHE_LINE(handle_pkt.address)) != pf_feature_filter.ip_pollution_map_tracker.end() && pf_feature_filter.ip_pollution_map_tracker[CACHE_LINE(handle_pkt.address)].second) {
+                pf_feature_filter.ip_pollution_map[pf_feature_filter.ip_pollution_map_tracker[CACHE_LINE(handle_pkt.address)].first]++;
+                pf_feature_filter.ip_pollution_map_tracker[CACHE_LINE(handle_pkt.address)] = {pf_feature_filter.ip_pollution_map_tracker[CACHE_LINE(handle_pkt.address)].first, false};
+          }
+          pf_feature_filter.demand_miss_interval_counter++;
+          pf_feature_filter.ip_demand_miss_interval_map[handle_pkt.ip]++;
+          pf_feature_filter.demand_miss_total++;
+
+          if (pf_feature_filter.check_direct_mapped_reject_table(CACHE_LINE(handle_pkt.address))) {
+            pf_feature_filter.train(CACHE_LINE(handle_pkt.address), true, true, false);
+            pf_feature_filter.erase_direct_mapped_reject_table(CACHE_LINE(handle_pkt.address));
+          }
+        }
+        // if (PPF) {
+        //   if (PERC_.check_reject_table(handle_pkt.address)) {
+        //     PERC_.perc_train_from_reject_table(handle_pkt.address, true);
+        //   }
+        // }
+
+      }
+
+      if (FDP && NAME == "LLC") {
+        fdp_control.num_demand_LLC_misses_total++;
+      }
+      else if (FDP_INTERVAL && NAME == "LLC") {
+        fdp_control.num_demand_LLC_misses_interval_counter++;
+      }
+}
 
     // remove this entry from RQ
     RQ.pop_front();
@@ -150,10 +331,141 @@ void CACHE::handle_prefetch()
     if (way < NUM_WAY) // HIT
     {
       readlike_hit(set, way, handle_pkt);
+
+      if (NAME == L2_NAME && PERCEPTRON_IP_FILTER) {
+        if (PERCEPTRON_HISTORY) {
+          pf_filter.get_prediction(handle_pkt.ip, CACHE_LINE(handle_pkt.address), handle_pkt.pf_metadata, 0, get_set(handle_pkt.address), handle_pkt.pf_trigger_addr, handle_pkt.pf_offset, lower_level->dram_occupancy, false, 0, false, false, true, history[cpu]);
+        }
+      }
+
+      if (NAME == L2_NAME && FEATURE_TEST) {
+        pf_feature_filter.get_prediction(handle_pkt.ip, CACHE_LINE(handle_pkt.address), handle_pkt.pf_metadata, 0, get_set(handle_pkt.address), handle_pkt.pf_trigger_addr, handle_pkt.pf_offset, lower_level->dram_availability, lower_level->get_bank_occupancy(1, handle_pkt.address), false, 0, false, history[cpu]);
+      }
     } else {
+
+      if (NAME == L2_NAME && FEATURE_TEST) {
+        bool pred = pf_feature_filter.get_prediction(handle_pkt.ip, CACHE_LINE(handle_pkt.address), handle_pkt.pf_metadata, 0, get_set(handle_pkt.address), handle_pkt.pf_trigger_addr, handle_pkt.pf_offset, lower_level->dram_availability, lower_level->get_bank_occupancy(1, handle_pkt.address), false, 0, true, history[cpu]);
+        if (!pred) {
+          pf_suppressed++;
+          PQ.pop_front();
+          return;
+        }
+      }
+
+      if (NAME == L2_NAME && DECISION_TREE_FILTERING) {
+        uint64_t ip_1 = history[cpu].size() > 0 ? history[cpu][0] : 0;
+        uint64_t ip_2 = history[cpu].size() > 1 ? history[cpu][1] : 0;
+        uint64_t ip_3 = history[cpu].size() > 2 ? history[cpu][2] : 0;
+        uint64_t hashed_history = ip_1 ^ (ip_2>>1) ^ (ip_3>>2);
+        bool pred = decision_tree_predictor.predict(handle_pkt.ip, handle_pkt.pf_metadata, handle_pkt.pf_offset, hashed_history, lower_level->dram_occupancy);
+        if (!pred) {
+          pf_suppressed++;
+          PQ.pop_front();
+          return;
+        }
+      }
+      
+
+      if (NAME == L2_NAME && PERCEPTRON_IP_FILTER) {
+          bool pred = false;
+          // double dram_availability = (lower_level->get_size(1, handle_pkt.address) - lower_level->get_occupancy(1, handle_pkt.address)) / (double) lower_level->get_size(1, handle_pkt.address);
+          if (NO_DRAM_OCCUPANCY) {
+            pred = pf_filter.get_prediction(handle_pkt.ip);
+          }
+          else if (PERCEPTRON_DRAM_AVAILABILITY) {
+            pred = pf_filter.get_prediction(handle_pkt.ip, (lower_level->get_size(1, handle_pkt.address) - lower_level->get_occupancy(1, handle_pkt.address)) / (double) lower_level->get_size(1, handle_pkt.address));
+          }
+          else if (PERCEPTRON_HISTORY) {
+            bool harmony_pred = false;
+            int rrpv = 0;
+
+            if (PERCEPTRON_WITH_HARMONY) {
+              harmony_pred = prefetch_predictor->get_prediction(handle_pkt.ip);
+            }
+            if (!harmony_pred) {
+              rrpv = 7;
+            }
+            PPF_PRED prefetch_action = pf_filter.get_prediction(handle_pkt.ip, CACHE_LINE(handle_pkt.address), handle_pkt.pf_metadata, rrpv, get_set(handle_pkt.address), handle_pkt.pf_trigger_addr, handle_pkt.pf_offset, lower_level->dram_occupancy, harmony_pred, 0, true, false, true, history[cpu]);
+            if (prefetch_action == SUPPRESS) {
+              pf_suppressed++;
+              PQ.pop_front();
+              return;
+            }
+          }
+          pf_filter.addr_to_dram_availability_map[handle_pkt.address] = dram_availability;
+          // if (!pred) {
+          //   pf_suppressed++;
+          //   PQ.pop_front();
+          //   return;
+          // }
+        }
+
+
       bool success = readlike_miss(handle_pkt);
-      if (!success)
+      if (!success) {
         return;
+      }
+      else {
+        tracer.prefetch_fill_interval_counter++;
+        tracer.prefetch_miss_total++;
+
+        // dram occupancy here?
+        if (FDP && DRAM_AVAILABILITY) {
+          fdp_control.dram_availability_at_prefetch_issue += lower_level->get_size(1, handle_pkt.address) 
+                                                            - lower_level->get_occupancy(1, handle_pkt.address);
+          fdp_control.dram_occupancy_at_prefetch_issue += lower_level->get_occupancy(1, handle_pkt.address);
+          if (!fdp_control.get_dram_rq_size) {
+            fdp_control.dram_rq_size = lower_level->get_size(1, handle_pkt.address);
+            fdp_control.get_dram_rq_size = true;
+            cout << "dram rq size: " << fdp_control.dram_rq_size << endl;
+          }
+        }
+        else if (FDP_INTERVAL && DRAM_AVAILABILITY) {
+          fdp_control.dram_availability_at_prefetch_issue_interval += lower_level->get_size(1, handle_pkt.address) 
+                                                            - lower_level->get_occupancy(1, handle_pkt.address);
+          fdp_control.dram_occupancy_at_prefetch_issue_interval += lower_level->get_occupancy(1, handle_pkt.address);
+          if (!fdp_control.get_dram_rq_size) {
+            fdp_control.dram_rq_size = lower_level->get_size(1, handle_pkt.address);
+            fdp_control.get_dram_rq_size = true;
+            cout << "dram rq size: " << fdp_control.dram_rq_size << endl;
+          }
+        }
+        if (FDP) {
+            fdp_control.prefetch_fill_total++;
+        }
+        if (FDP_INTERVAL) {
+            fdp_control.prefetch_fill_interval_counter++;
+        }
+        if (PERCEPTRON_IP_FILTER && NAME == "LLC") {
+          pf_filter.prefetch_fill_interval_counter++;
+          pf_filter.dram_availability_at_prefetch_issue_interval += lower_level->get_size(1, handle_pkt.address) 
+                                                            - lower_level->get_occupancy(1, handle_pkt.address);
+          pf_filter.bank_occupancy_at_prefetch_issue_interval += lower_level->get_bank_occupancy(1, handle_pkt.address);
+        }
+        if (NAME == "LLC") {
+          tracer.dram_occupancy_at_prefetch_issue += lower_level->get_occupancy(1, handle_pkt.address);
+          tracer.dram_availability_at_prefetch_issue += lower_level->get_size(1, handle_pkt.address) 
+                                                            - lower_level->get_occupancy(1, handle_pkt.address);
+        }
+        if (!tracer.get_dram_rq_size) {
+          tracer.dram_rq_size = lower_level->get_size(1, handle_pkt.address);
+          tracer.get_dram_rq_size = true;
+        }
+
+        if (PERCEPTRON_IP_FILTER) {
+          pf_filter.prefetch_miss_interval_counter++;
+          pf_filter.prefetch_miss_total++;
+          pf_filter.ip_accuracy_map[handle_pkt.ip].second++;
+        }
+
+        if (FEATURE_TEST) {
+          pf_feature_filter.prefetch_fill_interval_counter++;
+          pf_feature_filter.ip_accuracy_map[handle_pkt.ip].second++;
+        }
+
+
+
+      }
     }
 
     // remove this entry from PQ
@@ -181,7 +493,19 @@ void CACHE::readlike_hit(std::size_t set, std::size_t way, PACKET& handle_pkt)
   if (should_activate_prefetcher(handle_pkt.type) && handle_pkt.pf_origin_level < fill_level) {
     cpu = handle_pkt.cpu;
     uint64_t pf_base_addr = (virtual_prefetch ? handle_pkt.v_address : handle_pkt.address) & ~bitmask(match_offset_bits ? 0 : OFFSET_BITS);
-    handle_pkt.pf_metadata = impl_prefetcher_cache_operate(pf_base_addr, handle_pkt.ip, 1, handle_pkt.type, handle_pkt.pf_metadata);
+    handle_pkt.pf_metadata = impl_prefetcher_cache_operate(pf_base_addr, handle_pkt.ip, 1, handle_pkt.type, handle_pkt.pf_metadata, handle_pkt.instr_id, ooo_cpu[cpu]->current_cycle);
+
+    if (PERCEPTRON_HISTORY || FEATURE_TEST) {
+    auto iter = find(history[cpu].begin(), history[cpu].end(), handle_pkt.ip);
+    if (iter != history[cpu].end()) {
+      history[cpu].erase(iter);
+    }
+    history[cpu].push_back(handle_pkt.ip);
+    if (history[cpu].size() > HISTORY_LEN) {
+      history[cpu].erase(history[cpu].begin());
+    }
+  }
+
   }
 
   // update replacement policy
@@ -195,9 +519,80 @@ void CACHE::readlike_hit(std::size_t set, std::size_t way, PACKET& handle_pkt)
     ret->return_data(&handle_pkt);
 
   // update prefetch stats and reset prefetch bit
-  if (hit_block.prefetch) {
+  if (hit_block.prefetch && handle_pkt.type != PREFETCH) {
     pf_useful++;
+    tracer.useful_prefetch_total++;
+    tracer.useful_prefetch_interval_counter++;
+    if (PERCEPTRON_IP_FILTER) {
+      // cout << "perceptron ip filter useful prefetch" << endl;
+      pf_filter.ip_accuracy_map[hit_block.ip].first++;
+      pf_filter.useful_prefetch_interval_counter++;
+      pf_filter.useful_prefetch_total++;
+      
+      if (NO_DRAM_OCCUPANCY) {
+        pf_filter.train(hit_block.ip, true, false);
+      }
+      else if (PERCEPTRON_DRAM_AVAILABILITY) {
+        pf_filter.train(hit_block.ip, true, CACHE_LINE(hit_block.address));
+      }
+      else if (PERCEPTRON_HISTORY) {
+        // pf_filter.train(hit_block.ip, hit_block.address, true, history[cpu]);
+        // useful prefetch but caused cache pollution
+        // if (pf_filter.pf_addr_pollution_map[CACHE_LINE(hit_block.address)]) {
+        //   pf_filter.train(CACHE_LINE(hit_block.address), false, false, true, false, false, 1);
+        //   pf_filter.pf_addr_pollution_map[CACHE_LINE(hit_block.address)] = false;
+        // }
+      // if (pf_filter.pf_addr_pollution_map[CACHE_LINE(hit_block.address)]) {
+      //   pf_filter.train(CACHE_LINE(hit_block.address), false, false, true, true, false, true, 1);
+      // }
+      // else {
+      //   pf_filter.train(CACHE_LINE(hit_block.address), true, false, true, false, false, true, 1);
+      // }
+
+      pf_filter.train(CACHE_LINE(hit_block.address), true, false, true, false, false, true, 1);
+      }
+      // pf_filter.train(hit_block.ip, true, lower_level->get_occupancy(1, handle_pkt.address));
+    }
+    if (DECISION_TREE_FILTERING) {
+      decision_tree_predictor.update_result(true);
+    }
+
+    // if (PPF) {
+    //   PERC_.perc_train_from_prefetch_table(hit_block.address, true);
+    // }
+
+    if (FDP) {
+      fdp_control.useful_prefetch_total++;
+      if (handle_pkt.type == LOAD) {
+        fdp_control.coverage_total++;
+      }
+    }
+    if (FDP_INTERVAL) {
+      fdp_control.useful_prefetch_interval_counter++;
+      if (handle_pkt.type == LOAD) {
+        fdp_control.coverage_interval_counter++;
+      }
+    }
+    if (HARMONY_PREDICTION) {
+      if (prefetch_reuse_predictor->get_mark(CACHE_LINE(hit_block.address))) {
+        prefetch_reuse_predictor->set_reuse(CACHE_LINE(hit_block.address));
+      }
+    }
+
+    if (FEATURE_TEST) {
+      pf_feature_filter.ip_accuracy_map[hit_block.ip].first++;
+      pf_feature_filter.useful_prefetch_interval_counter++;
+      pf_feature_filter.train(CACHE_LINE(hit_block.address), true, false, true);
+    }
+
     hit_block.prefetch = 0;
+  }
+  // if (hit_block.prefetch) {
+  // }
+  if (hit_block.prefetch_until_evict) {
+      tracer.cycle_coverage += (double) total_miss_latency / (double) total_miss;
+      tracer.cycle_coverage_interval += (double) total_miss_latency / (double) total_miss;
+      fdp_control.demand_hit_prefetched_block(2.0);
   }
 }
 
@@ -228,8 +623,79 @@ bool CACHE::readlike_miss(PACKET& handle_pkt)
 
     if (mshr_entry->type == PREFETCH && handle_pkt.type != PREFETCH) {
       // Mark the prefetch as useful
-      if (mshr_entry->pf_origin_level == fill_level)
+      if (mshr_entry->pf_origin_level == fill_level) {
         pf_useful++;
+        
+
+        // fdp increment accurate count
+        if (FDP) {
+          fdp_control.useful_prefetch_total++;
+        }
+        if (FDP_INTERVAL) {
+          fdp_control.useful_prefetch_interval_counter++;
+        }
+        // fdp increment late count
+        if (FDP) {
+          fdp_control.late_prefetch_total++;
+        }
+        if (FDP_INTERVAL) {
+          fdp_control.late_prefetch_interval_counter++;
+        }
+        if (PERCEPTRON_IP_FILTER) {
+          // cout << "perceptron ip filter useful prefetch" << endl;
+          pf_filter.ip_accuracy_map[mshr_entry->ip].first++;
+          pf_filter.ip_late_map[mshr_entry->ip]++;
+          pf_filter.late_prefetch_interval_counter++;
+          pf_filter.useful_prefetch_interval_counter++;
+
+          // train on late but useful prefetches?
+          if (NO_DRAM_OCCUPANCY) {
+            pf_filter.train(mshr_entry->ip, true, false);
+          }
+          else if (PERCEPTRON_DRAM_AVAILABILITY) {
+            pf_filter.train(mshr_entry->ip, true, CACHE_LINE(mshr_entry->address));
+          }
+          else if (PERCEPTRON_HISTORY) {
+            // pf_filter.train(mshr_entry->ip, mshr_entry->address, true, history[cpu]);
+            // cout << "late prefetch cycles saved: " << current_cycle - mshr_entry->cycle_enqueued << endl;
+            int cycles_saved = current_cycle - mshr_entry->cycle_enqueued;
+            // if (cycles_saved)
+            pf_filter.train(CACHE_LINE(mshr_entry->address), true, false, true, false, true, true, 1);
+          }
+        }
+
+        // if (PPF) {
+        //   PERC_.perc_train_from_prefetch_table(mshr_entry->address, true);
+        // }
+
+        if (DECISION_TREE_FILTERING) {
+          decision_tree_predictor.update_result(true);
+        }
+
+        if (FEATURE_TEST) {
+          pf_feature_filter.ip_accuracy_map[mshr_entry->ip].first++;
+          pf_feature_filter.ip_late_map[mshr_entry->ip]++;
+          pf_feature_filter.late_prefetch_interval_counter++;
+          pf_feature_filter.useful_prefetch_interval_counter++;
+          pf_feature_filter.train(CACHE_LINE(mshr_entry->address), true, false, true);
+          
+        }
+
+        // mark the useful prefetch
+        // tracer.ip_accuracy_map[mshr_entry->ip].first++;
+        // mark the lateness
+        tracer.late_total++;
+        tracer.useful_prefetch_total++;
+        tracer.late_interval_counter++;
+        tracer.useful_prefetch_interval_counter++;
+        // tracer.ip_late_map[mshr_entry->ip]++
+
+        // fdp_control.late_prefetch(current_cycle - mshr_entry->cycle_enqueued);
+        tracer.cycle_coverage += current_cycle - mshr_entry->cycle_enqueued;
+        tracer.cycle_coverage_interval += current_cycle - mshr_entry->cycle_enqueued;
+        fdp_control.late_prefetch(1.0);
+        
+      }
 
       uint64_t prior_event_cycle = mshr_entry->event_cycle;
       *mshr_entry = handle_pkt;
@@ -265,13 +731,45 @@ bool CACHE::readlike_miss(PACKET& handle_pkt)
       lower_level->add_pq(&handle_pkt);
     else
       lower_level->add_rq(&handle_pkt);
+
+    if (NAME == "LLC") {
+          dram_availability = (double) (lower_level->get_size(1, handle_pkt.address) - lower_level->get_occupancy(1, handle_pkt.address)) / (double) lower_level->get_size(1, handle_pkt.address);
+          dram_occupancy = lower_level->get_occupancy(1, handle_pkt.address);
+          // cout << "LLC dram availability: " << dram_availability << endl;
+          // cout << "LLC occupancy: " << lower_level->get_occupancy(1, handle_pkt.address) << endl;
+          // cout << "LLC dram size: " << lower_level->get_size(1, handle_pkt.address) << endl;
+    }
   }
 
   // update prefetcher on load instructions and prefetches from upper levels
   if (should_activate_prefetcher(handle_pkt.type) && handle_pkt.pf_origin_level < fill_level) {
     cpu = handle_pkt.cpu;
     uint64_t pf_base_addr = (virtual_prefetch ? handle_pkt.v_address : handle_pkt.address) & ~bitmask(match_offset_bits ? 0 : OFFSET_BITS);
-    handle_pkt.pf_metadata = impl_prefetcher_cache_operate(pf_base_addr, handle_pkt.ip, 0, handle_pkt.type, handle_pkt.pf_metadata);
+    handle_pkt.pf_metadata = impl_prefetcher_cache_operate(pf_base_addr, handle_pkt.ip, 0, handle_pkt.type, handle_pkt.pf_metadata, handle_pkt.instr_id, ooo_cpu[cpu]->current_cycle);
+
+    if (PERCEPTRON_HISTORY || FEATURE_TEST) {
+      auto iter = find(history[cpu].begin(), history[cpu].end(), handle_pkt.ip);
+      if (iter != history[cpu].end()) {
+        history[cpu].erase(iter);
+      }
+      history[cpu].push_back(handle_pkt.ip);
+      if (history[cpu].size() > HISTORY_LEN) {
+        history[cpu].erase(history[cpu].begin());
+      }
+
+      if (PERCEPTRON_REJECT_CACHE) {
+        if (PERCEPTRON_REJECT_CACHE_LOGGING) {
+          cout << "updating reject cache" << endl;
+          pf_filter.print_reject_cache(get_set(handle_pkt.address));
+        }
+        pf_filter.update_reject_cache(get_set(handle_pkt.address));
+        if (PERCEPTRON_REJECT_CACHE_LOGGING) {
+          pf_filter.print_reject_cache(get_set(handle_pkt.address));
+        }
+
+      }
+    }
+    
   }
 
   return true;
@@ -297,6 +795,7 @@ bool CACHE::filllike_miss(std::size_t set, std::size_t way, PACKET& handle_pkt)
   BLOCK& fill_block = block[set * NUM_WAY + way];
   bool evicting_dirty = !bypass && (lower_level != NULL) && fill_block.dirty;
   uint64_t evicting_address = 0;
+  bool fill_is_prefetch = false;
 
   if (!bypass) {
     if (evicting_dirty) {
@@ -320,14 +819,115 @@ bool CACHE::filllike_miss(std::size_t set, std::size_t way, PACKET& handle_pkt)
     else
       evicting_address = fill_block.v_address & ~bitmask(match_offset_bits ? 0 : OFFSET_BITS);
 
-    if (fill_block.prefetch)
+    if (fill_block.prefetch) {
       pf_useless++;
+      // negatively train on useless prefetches
+      if (PERCEPTRON_IP_FILTER) {
+        if (NO_DRAM_OCCUPANCY) {
+          pf_filter.train(fill_block.ip, false, false);
+        }
+        else if (PERCEPTRON_DRAM_AVAILABILITY) {
+          pf_filter.train(fill_block.ip, false, CACHE_LINE(fill_block.address));
+        }
+        else if (PERCEPTRON_HISTORY) {
+          // double prefetch_fraction = (pf_filter.demand_miss_interval_counter > 0) ? (double) pf_filter.prefetch_miss_interval_counter / (double) pf_filter.demand_miss_interval_counter : 0.0;
+          // if ((fill_block.possible_pollution && handle_pkt.type == LOAD) 
+          //   || (
+          //     pf_filter.addr_to_dram_availability_map.find(CACHE_LINE(fill_block.address)) != pf_filter.addr_to_dram_availability_map.end() && pf_filter.addr_to_dram_availability_map[CACHE_LINE(fill_block.address)] < 0.90
+          //     // pf_filter.prefetch_miss_interval_counter > pf_filter.demand_miss_interval_counter
+          //     // prefetch_fraction > 0.95
+          //     )
+          //     ) {
+          //   pf_filter.train(CACHE_LINE(fill_block.address), false, false);
+          //   pf_filter.addr_to_dram_availability_map.erase(CACHE_LINE(fill_block.address));
+          // }
+
+          // if (pf_filter.addr_to_dram_availability_map.find(CACHE_LINE(fill_block.address)) != pf_filter.addr_to_dram_availability_map.end() && pf_filter.addr_to_dram_availability_map[CACHE_LINE(fill_block.address)] < 0.5) {
+          //   pf_filter.train(CACHE_LINE(fill_block.address), false, false, false);
+          // }
+          // cout << "training on address: " << fill_block.address << endl;
+            // else {
+            //   if (pf_filter.training_type == Training_Type::NORMAL) {
+            //     pf_filter.train(CACHE_LINE(fill_block.address), false, false, false, false, false, true, 1);
+            //   }
+            // }
+
+        // if (pf_filter.normal_false_training) {
+        //     pf_filter.train(CACHE_LINE(fill_block.address), false, false, false, false, false, true, 1);
+        // }
+
+          pf_filter.total_false++;
+          if (pf_filter.pf_addr_pollution_map[CACHE_LINE(fill_block.address)]) {
+            pf_filter.num_false_with_negative_impact++;
+            pf_filter.train(CACHE_LINE(fill_block.address), false, false, false, true, false, false, 1);
+            pf_filter.pf_addr_pollution_map[CACHE_LINE(fill_block.address)] = false;
+          }
+          else if (pf_filter.pf_addr_blocking_demand_map[CACHE_LINE(fill_block.address)]) {
+            pf_filter.num_false_with_negative_impact++;
+            pf_filter.train(CACHE_LINE(fill_block.address), false, false, false, false, false, false, 1);
+            pf_filter.pf_addr_blocking_demand_map[CACHE_LINE(fill_block.address)] = false;
+          }
+          else {
+            pf_filter.train(CACHE_LINE(fill_block.address), false, false, false, false, false, true, 1);
+          }
+        
+          // if (pf_filter.training_type == Training_Type::NORMAL) {
+          //   pf_filter.train(CACHE_LINE(fill_block.address), false, false, false, false, false, true, 1);
+          // }
+          // else if (pf_filter.training_type == Training_Type::HIGH) {
+          //   pf_filter.train(CACHE_LINE(fill_block.address), false, false, false, false, false, true, 2);
+          // }
+          // else {
+          // }
+
+          // if (fill_block.pollution) {
+          //   pf_filter.train(CACHE_LINE(fill_block.address), false, false, false, 3);
+          // }
+        }
+      }
+
+      if (FEATURE_TEST) {
+        pf_feature_filter.train(CACHE_LINE(fill_block.address), false, false, false);
+      }
+
+      if (DECISION_TREE_FILTERING) {
+        decision_tree_predictor.update_result(false);
+      }
+
+      // if (PPF) {
+      //   PERC_.perc_train_from_prefetch_table(fill_block.address, false);
+      // }
+      double dram_occupancy = (double) lower_level->get_occupancy(1, fill_block.address) / (double) lower_level->get_size(1, fill_block.address);
+      fdp_control.useless_prefetch(2*dram_occupancy);
+    }
 
     if (handle_pkt.type == PREFETCH)
       pf_fill++;
+    
+    if (NAME == L2_NAME && !fill_block.prefetch_until_evict && handle_pkt.type == PREFETCH) {
+      fill_block.evicted_demand_address = CACHE_LINE(fill_block.address);
+      fill_block.possible_pollution = true;
+      // cout << "setting evicted demand address: " << CACHE_LINE(fill_block.address) << endl;
+      // if (ADAPTIVE_PREFETCH_FILTER) {
+      //   pf_filter.add_prefetch_victim_addr_pair(CACHE_LINE(handle_pkt.address), CACHE_LINE(fill_block.address));
+      // }
+    }
+    else {
+      fill_block.possible_pollution = false;
+    }
+
+    pf_filter.pf_addr_blocking_demand_map[CACHE_LINE(fill_block.address)] = false;
+
+    if (ADAPTIVE_PREFETCH_FILTER) {
+      pf_filter.update_apf_with_victim_cache_miss(CACHE_LINE(fill_block.address));
+    }
+
+
+    fill_is_prefetch = fill_block.prefetch_until_evict;
 
     fill_block.valid = true;
     fill_block.prefetch = (handle_pkt.type == PREFETCH && handle_pkt.pf_origin_level == fill_level);
+    fill_block.prefetch_until_evict = (handle_pkt.type == PREFETCH && handle_pkt.pf_origin_level == fill_level);
     fill_block.dirty = (handle_pkt.type == WRITEBACK || (handle_pkt.type == RFO && handle_pkt.to_return.empty()));
     fill_block.address = handle_pkt.address;
     fill_block.v_address = handle_pkt.v_address;
@@ -335,19 +935,56 @@ bool CACHE::filllike_miss(std::size_t set, std::size_t way, PACKET& handle_pkt)
     fill_block.ip = handle_pkt.ip;
     fill_block.cpu = handle_pkt.cpu;
     fill_block.instr_id = handle_pkt.instr_id;
+    fill_block.pollution = false;
   }
 
-  if (warmup_complete[handle_pkt.cpu] && (handle_pkt.cycle_enqueued != 0))
+  if (warmup_complete[handle_pkt.cpu] && (handle_pkt.cycle_enqueued != 0)) {
     total_miss_latency += current_cycle - handle_pkt.cycle_enqueued;
+    total_miss++;
+    miss_latency_vector.push_back(current_cycle - handle_pkt.cycle_enqueued);
+
+    if (FDP_INTERVAL) {
+      if (!fill_is_prefetch) {
+        fdp_control.demand_miss_latency_interval_counter += current_cycle - handle_pkt.cycle_enqueued;
+      }
+      else {
+        fdp_control.prefetch_miss_latency_interval_counter += current_cycle - handle_pkt.cycle_enqueued;
+        fdp_control.prefetch_miss_interval_counter++;
+      }
+    }
+    if (PERCEPTRON_IP_FILTER) {
+       if (!fill_is_prefetch) {
+        pf_filter.demand_miss_latency_interval_counter += current_cycle - handle_pkt.cycle_enqueued;
+      }
+      else {
+        pf_filter.prefetch_miss_latency_interval_counter += current_cycle - handle_pkt.cycle_enqueued;
+      }
+    }
+  }
+
 
   // update prefetcher
   cpu = handle_pkt.cpu;
   handle_pkt.pf_metadata =
       impl_prefetcher_cache_fill((virtual_prefetch ? handle_pkt.v_address : handle_pkt.address) & ~bitmask(match_offset_bits ? 0 : OFFSET_BITS), set, way,
-                                 handle_pkt.type == PREFETCH, evicting_address, handle_pkt.pf_metadata);
+                                 handle_pkt.type == PREFETCH, evicting_address, handle_pkt.pf_metadata, ooo_cpu[cpu]->current_cycle);
+  // if (PPF) {
+  //   PERC_.update_prefetch_and_reject_table(evicting_address);
+  // }
 
   // update replacement policy
   impl_replacement_update_state(handle_pkt.cpu, set, way, handle_pkt.address, handle_pkt.ip, 0, handle_pkt.type, 0);
+
+  if (PERCEPTRON_REJECT_CACHE) {
+    if (PERCEPTRON_REJECT_CACHE_LOGGING) {
+      cout << "updating reject cache" << endl;
+      pf_filter.print_reject_cache(set);
+    }
+    pf_filter.update_reject_cache(set);
+    if (PERCEPTRON_REJECT_CACHE_LOGGING) {
+      pf_filter.print_reject_cache(set);
+    }
+  }
 
   // COLLECT STATS
   sim_miss[handle_pkt.cpu][handle_pkt.type]++;
@@ -361,6 +998,53 @@ void CACHE::operate()
   operate_writes();
   operate_reads();
 
+  if (NAME == "LLC" && (FDP || FDP_INTERVAL || COST_MODEL || COST_MODEL_INTERVAL) && fdp_control.is_interval_complete()) {
+    int prev_pref_degree = get_prefetcher_degree(cpu);
+    Control_Response cr = fdp_control.prefetcher_control(this->current_cycle, pf_filter.degree_accuracy_map[prev_pref_degree].first, pf_filter.degree_accuracy_map[prev_pref_degree].second);
+    switch(cr) {
+      case INCREMENT: {
+        int new_degree = min(prev_pref_degree+1, 6);
+        set_prefetcher_degree(new_degree, cpu);
+        fdp_control.fdp_interval_vec.push_back({INCREMENT, new_degree});
+        control_response = INCREMENT;
+        if (FDP_LOGGING) {
+          cout << "INCREMENT" << endl;
+        }
+        break;
+      }
+      case DECREMENT: {
+        int new_degree = max(prev_pref_degree-1, 4);
+        set_prefetcher_degree(new_degree, cpu);
+        fdp_control.fdp_interval_vec.push_back({DECREMENT, new_degree});
+        control_response = DECREMENT;
+        if (FDP_LOGGING) {
+          cout << "DECREMENT" << endl;
+        }
+        break;
+      }
+      case NO_CHANGE: {
+        fdp_control.fdp_interval_vec.push_back({NO_CHANGE, prev_pref_degree});
+        control_response = NO_CHANGE;
+        if (FDP_LOGGING) {
+          cout << "NO CHANGE" << endl;
+        }
+      }
+      default: {
+        break;
+      }
+    }
+    fdp_control.reset_interval(this->current_cycle);
+  }
+
+  if ((PERCEPTRON_IP_FILTER) && pf_filter.is_interval_complete()) {
+    // cout << "NAME: " << NAME << endl;
+    pf_filter.reset_interval(this->current_cycle, get_prefetcher_degree(cpu));
+    // set_prefetcher_degree(new_degree, cpu);
+    // pf_filter.verify_stats(tracer.useful_prefetch_total, tracer.num_total_prefetch_fills, tracer.late_total, tracer.pollution_total);
+  }
+  if (FEATURE_TEST && pf_feature_filter.is_interval_complete()) {
+    pf_feature_filter.reset_interval(this->current_cycle, get_prefetcher_degree(cpu));
+  }
   impl_prefetcher_cycle_operate();
 }
 
@@ -401,8 +1085,9 @@ int CACHE::invalidate_entry(uint64_t inval_addr)
   uint32_t set = get_set(inval_addr);
   uint32_t way = get_way(inval_addr, set);
 
-  if (way < NUM_WAY)
+  if (way < NUM_WAY) {
     block[set * NUM_WAY + way].valid = 0;
+  }
 
   return way;
 }
@@ -513,18 +1198,141 @@ int CACHE::add_wq(PACKET* packet)
   return WQ.occupancy();
 }
 
-int CACHE::prefetch_line(uint64_t pf_addr, bool fill_this_level, uint32_t prefetch_metadata)
+int CACHE::prefetch_line(uint64_t pf_addr, bool fill_this_level, uint32_t prefetch_metadata, uint64_t ip, uint64_t prefetch_trigger_addr, uint64_t prefetch_offset, uint64_t score)
 {
   pf_requested++;
+
+  if (HARMONY_PREDICTION) {
+    bool pred = prefetch_predictor->get_prediction(ip);
+    if (!pred) {
+      if (!prefetch_reuse_predictor->get_prediction(CACHE_LINE(pf_addr))) {
+        // cout << "suppressed prefetch for ip: " << ip << endl;
+        // prefetch_reuse_predictor->print_SHCT_ip(ip);
+        pf_suppressed++;
+        return 0;
+      }
+      
+    }
+
+  }
+
+  if (ACCURACY_THRESHOLD) {
+    int accurate = tracer.get_accurate_counter_ip(ip);
+    int total = tracer.get_total_counter_ip(ip);
+
+    if (training_complete && total > 0) {
+        double accuracy = (double) accurate/(double)total;
+        double impact = (double) total / (double) tracer.num_total_prefetch_fills;
+
+        if (accuracy <= accuracy_threshold) {
+            pf_suppressed++; 
+            return 0;
+
+        }
+    }
+  }
+
+  if (COMBINED_HARMONY_ACCURACY) {
+    bool pred = prefetch_predictor->get_prediction(ip);
+    int accurate = tracer.get_accurate_counter_ip(ip);
+    int total = tracer.get_total_counter_ip(ip);
+
+    double accuracy = (double) accurate/(double)total;
+    if (training_complete && !pred && accuracy < 0.50) {
+      pf_suppressed++;
+      return 0;
+    }
+  } 
+
+  // if (NAME == L2_NAME && PERCEPTRON_IP_FILTER && PERCEPTRON_HISTORY) {
+  //       PPF_PRED prefetch_action = pf_filter.get_prediction(ip, CACHE_LINE(pf_addr), prefetch_metadata, 0, get_set(pf_addr), prefetch_trigger_addr, prefetch_offset, lower_level->dram_occupancy, false, 0, true, false, warmup_complete[cpu], history[cpu]);
+  //       if (prefetch_action == SUPPRESS) {
+  //         pf_suppressed++;
+  //         return 0;
+  //       }
+  // }
+
+  // if (PERCEPTRON_IP_FILTER) {
+  //   bool pred = false;
+  //   double dram_availability = (double) (lower_level->get_size(1, pf_addr) - lower_level->get_occupancy(1, pf_addr)) / (double) lower_level->get_size(1, pf_addr);
+  //   if (NO_DRAM_OCCUPANCY) {
+  //     pred = pf_filter.get_prediction(ip);
+  //   }
+  //   else if (PERCEPTRON_DRAM_AVAILABILITY) {
+  //     pred = pf_filter.get_prediction(ip, dram_availability, CACHE_LINE(pf_addr), prefetch_metadata, prefetch_offset);
+  //   }
+  //   else if (PERCEPTRON_HISTORY) {
+  //     bool harmony_pred = false;
+  //     int rrpv = 0;
+  //     if (PERCEPTRON_WITH_HARMONY) {
+  //       harmony_pred = prefetch_predictor->get_prediction(ip);
+  //       if (!harmony_pred) {
+  //         rrpv = 7;
+  //       }
+  //     }
+  //     PPF_PRED prefetch_action = pf_filter.get_prediction(ip, CACHE_LINE(pf_addr), prefetch_metadata, rrpv, get_set(pf_addr), prefetch_trigger_addr, prefetch_offset, dram_availability, harmony_pred, score, false, history[cpu]);
+  //     if (prefetch_action == SUPPRESS) {
+  //       pf_suppressed++;
+  //       return 0;
+  //     }
+  //     // else if (prefetch_action == PREFETCH_LLC) {
+  //     //   fill_this_level = false;
+  //     // }
+  //   }
+  //   pf_filter.addr_to_dram_availability_map[CACHE_LINE(pf_addr)] = dram_availability;
+  //   // if (!pred) {
+  //   //   pf_suppressed++;
+  //   //   return 0;
+  //   // }
+  // }
+
+  if (ADAPTIVE_PREFETCH_FILTER) {
+    bool pred = pf_filter.get_apf_prediction(CACHE_LINE(pf_addr));
+    if (pred) {
+      pf_suppressed++;
+      return 0;
+    }
+  }
+
+  // if (PPF) {
+  //   uint64_t ip_1 = (history[cpu].size() > 0) ? history[cpu][0] : 0;
+  //   uint64_t ip_2 = (history[cpu].size() > 1) ? history[cpu][1] : 0;
+  //   uint64_t ip_3 = (history[cpu].size() > 1) ? history[cpu][2] : 0;
+  //     PPF_PRED pred_action = PERC_.get_perc_prediction(prefetch_trigger_addr, pf_addr, ip, ip_1, ip_2, ip_3, prefetch_offset, prefetch_metadata);
+  //     if (pred_action == SUPPRESS) {
+  //       pf_suppressed++;
+  //       return 0;
+  //     }
+  //     else if (pred_action == PREFETCH_LLC) {
+  //       fill_this_level = false;
+  //     }
+  // }
+
+  // if (FEATURE_TEST) {
+  //   bool pred = pf_feature_filter.get_prediction(ip, CACHE_LINE(pf_addr), prefetch_metadata, 0, get_set(pf_addr), prefetch_trigger_addr, prefetch_offset, lower_level->dram_availability, lower_level->dram_occupancy, false, score, history[cpu]);
+  //   if (!pred) {
+  //     pf_suppressed++;
+  //     return 0;
+  //   }
+  // }
+
+  // tracer.dram_occupancy_at_prefetch_issue += lower_level->get_occupancy(1, pf_addr);
+  // tracer.num_issued_prefetches_interval++;
+
+
 
   PACKET pf_packet;
   pf_packet.type = PREFETCH;
   pf_packet.fill_level = (fill_this_level ? fill_level : lower_level->fill_level);
   pf_packet.pf_origin_level = fill_level;
   pf_packet.pf_metadata = prefetch_metadata;
+  pf_packet.prefetch_degree = prefetch_metadata;
   pf_packet.cpu = cpu;
   pf_packet.address = pf_addr;
   pf_packet.v_address = virtual_prefetch ? pf_addr : 0;
+  pf_packet.ip = ip;
+  pf_packet.pf_trigger_addr = prefetch_trigger_addr;
+  pf_packet.pf_offset = prefetch_offset;
 
   if (virtual_prefetch) {
     if (!VAPQ.full()) {
@@ -539,11 +1347,11 @@ int CACHE::prefetch_line(uint64_t pf_addr, bool fill_this_level, uint32_t prefet
       return 1;
     }
   }
-
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         
   return 0;
 }
 
-int CACHE::prefetch_line(uint64_t ip, uint64_t base_addr, uint64_t pf_addr, bool fill_this_level, uint32_t prefetch_metadata)
+int CACHE::prefetch_line(uint64_t ip, uint64_t base_addr, uint64_t pf_addr, bool fill_this_level, uint32_t prefetch_metadata, uint64_t prefetch_trigger_addr, uint64_t prefetch_offset, uint64_t score)
 {
   static bool deprecate_printed = false;
   if (!deprecate_printed) {
@@ -556,7 +1364,7 @@ int CACHE::prefetch_line(uint64_t ip, uint64_t base_addr, uint64_t pf_addr, bool
               << std::endl;
     deprecate_printed = true;
   }
-  return prefetch_line(pf_addr, fill_this_level, prefetch_metadata);
+  return prefetch_line(pf_addr, fill_this_level, prefetch_metadata, ip, prefetch_trigger_addr, prefetch_offset, score);
 }
 
 void CACHE::va_translate_prefetches()
@@ -698,6 +1506,10 @@ uint32_t CACHE::get_size(uint8_t queue_type, uint64_t address)
   return 0;
 }
 
+uint32_t CACHE::get_bank_occupancy(uint8_t queue_type, uint64_t address) {
+  return 0;
+}
+
 bool CACHE::should_activate_prefetcher(int type) { return (1 << static_cast<int>(type)) & pref_activate_mask; }
 
 void CACHE::print_deadlock()
@@ -714,3 +1526,11 @@ void CACHE::print_deadlock()
     std::cout << NAME << " MSHR empty" << std::endl;
   }
 }
+
+// int CACHE::get_prefetcher_degree(int cpu) {
+//   return 0;
+// }
+
+// void CACHE::set_prefetcher_degree(int cpu, int degree) {
+//   return;
+// } 

@@ -4,7 +4,12 @@
 
 #include "champsim_constants.h"
 #include "util.h"
+#include "tracer.h"
+#include "fdp_control.h"
+#include "prefetch_ip_suppress_filter.h"
 
+extern FDP_Control fdp_control;
+extern Prefetch_Filter pf_filter;
 extern uint8_t all_warmup_complete;
 
 struct is_unscheduled {
@@ -26,6 +31,9 @@ void MEMORY_CONTROLLER::operate()
 
       *channel.active_request->pkt = {};
       channel.active_request = std::end(channel.bank_request);
+
+      // log dram latency here
+      tracer.dram_latencies_vector.push_back(channel.active_request->event_cycle - current_cycle);
     }
 
     // Check queue occupancy
@@ -112,6 +120,8 @@ void MEMORY_CONTROLLER::operate()
       }
     }
   }
+
+  mark_prefetches_blocking_demands();
 }
 
 int MEMORY_CONTROLLER::add_rq(PACKET* packet)
@@ -155,6 +165,16 @@ int MEMORY_CONTROLLER::add_rq(PACKET* packet)
   *rq_it = *packet;
   rq_it->event_cycle = current_cycle;
 
+  // increment memory request count
+  tracer.memory_request_total++;
+  tracer.memory_request_interval_counter++;
+  if (FDP_INTERVAL) {
+    fdp_control.memory_request_interval_counter++;
+  }
+  if (FDP) {
+    fdp_control.memory_request_total++;
+  }
+
   return get_occupancy(1, packet->address);
 }
 
@@ -179,11 +199,57 @@ int MEMORY_CONTROLLER::add_wq(PACKET* packet)
 
   *wq_it = *packet;
   wq_it->event_cycle = current_cycle;
+  
+  // increment memory request count
+  tracer.memory_request_total++;
+  tracer.memory_request_interval_counter++;
+  if (FDP_INTERVAL) {
+    fdp_control.memory_request_interval_counter++;
+  }
+  if (FDP) {
+    fdp_control.memory_request_total++;
+  }
+  if (PERCEPTRON_IP_FILTER) {
+    pf_filter.memory_request_interval_counter++;
+  }
 
   return get_occupancy(2, packet->address);
 }
 
 int MEMORY_CONTROLLER::add_pq(PACKET* packet) { return add_rq(packet); }
+
+std::vector<PACKET> MEMORY_CONTROLLER::make_bank_queues(uint64_t addr, int bank) {
+  std::vector<PACKET> bank_queue;
+  int channel = dram_get_channel(addr);
+  for (int i = 0; i < channels[channel].RQ.size(); i++) {
+    if (channels[channel].RQ[i].address != 0) {
+      int packet_bank = dram_get_bank(channels[channel].RQ[i].address);
+      if (packet_bank == bank) {
+        bank_queue.push_back(channels[channel].RQ[i]);
+      }
+    }
+    
+  }
+  return bank_queue;
+}
+
+void MEMORY_CONTROLLER::mark_prefetches_blocking_demands() {
+  for (int i = 0; i < DRAM_BANKS; i++) {
+    std::vector<PACKET> bank_queue = make_bank_queues(123, i);
+    std::vector<int> prefetch_list;
+    for (int j = 0; j < bank_queue.size(); j++) {
+      if (bank_queue[j].type == PREFETCH) {
+        prefetch_list.push_back(j);
+      }
+      else {
+        for (int k = 0; k < prefetch_list.size(); k++) {
+          pf_filter.pf_addr_blocking_demand_map[CACHE_LINE(bank_queue[prefetch_list[k]].address)] = true;
+        }
+        prefetch_list.clear();
+      }
+    }
+  }
+}
 
 /*
  * | row address | rank index | column address | bank index | channel | block
@@ -243,5 +309,24 @@ uint32_t MEMORY_CONTROLLER::get_size(uint8_t queue_type, uint64_t address)
   else if (queue_type == 3)
     return get_size(1, address);
 
+  return 0;
+}
+
+uint32_t MEMORY_CONTROLLER::get_bank_occupancy(uint8_t queue_type, uint64_t address) {
+  int bank = dram_get_bank(address);
+  if (queue_type == 1) {
+    int bank_size = 0;
+    int channel = dram_get_channel(address);
+    for (int i = 0; i < channels[channel].RQ.size(); i++) {
+      if (channels[channel].RQ[i].address != 0) {
+        int packet_bank = dram_get_bank(channels[channel].RQ[i].address);
+        if (packet_bank == bank) {
+          bank_size++;
+        }
+      }
+        
+    }
+  return bank_size;
+  }
   return 0;
 }

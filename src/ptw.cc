@@ -217,6 +217,11 @@ uint32_t PageTableWalker::get_size(uint8_t queue_type, uint64_t address)
   return 0;
 }
 
+uint32_t PageTableWalker::get_bank_occupancy(uint8_t queue_type, uint64_t address)
+{
+  return 0;
+}
+
 void PagingStructureCache::fill_cache(uint64_t next_level_paddr, uint64_t vaddr)
 {
   auto set_idx = (vaddr >> vmem.shamt(level + 1)) & bitmask(lg2(NUM_SET));

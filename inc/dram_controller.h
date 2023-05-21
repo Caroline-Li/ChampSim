@@ -38,6 +38,8 @@ struct DRAM_CHANNEL {
   std::vector<PACKET> WQ{DRAM_WQ_SIZE};
   std::vector<PACKET> RQ{DRAM_RQ_SIZE};
 
+  // std::vector<PACKET> BANK_QUEUES[DRAM_BANKS];
+
   std::array<BANK_REQUEST, DRAM_RANKS* DRAM_BANKS> bank_request = {};
   std::array<BANK_REQUEST, DRAM_RANKS* DRAM_BANKS>::iterator active_request = std::end(bank_request);
 
@@ -66,10 +68,15 @@ public:
   int add_wq(PACKET* packet) override;
   int add_pq(PACKET* packet) override;
 
+  std::vector<PACKET> make_bank_queues(uint64_t addr, int bank);
+  void mark_prefetches_blocking_demands();
+  
+
   void operate() override;
 
   uint32_t get_occupancy(uint8_t queue_type, uint64_t address) override;
   uint32_t get_size(uint8_t queue_type, uint64_t address) override;
+  uint32_t get_bank_occupancy(uint8_t queue_type, uint64_t address) override;
 
   uint32_t dram_get_channel(uint64_t address);
   uint32_t dram_get_rank(uint64_t address);

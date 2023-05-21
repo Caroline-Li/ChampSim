@@ -7,6 +7,7 @@
 #include <signal.h>
 #include <string.h>
 #include <vector>
+#include <unistd.h>
 
 #include "cache.h"
 #include "champsim.h"
@@ -16,6 +17,9 @@
 #include "operable.h"
 #include "tracereader.h"
 #include "vmem.h"
+#include "knob.h"
+
+#define log_ipc_10M true
 
 uint8_t warmup_complete[NUM_CPUS] = {}, simulation_complete[NUM_CPUS] = {}, all_warmup_complete = 0, all_simulation_complete = 0,
         MAX_INSTR_DESTINATIONS = NUM_INSTR_DESTINATIONS, knob_cloudsuite = 0, knob_low_bandwidth = 0;
@@ -23,6 +27,29 @@ uint8_t warmup_complete[NUM_CPUS] = {}, simulation_complete[NUM_CPUS] = {}, all_
 uint64_t warmup_instructions = 1000000, simulation_instructions = 10000000;
 
 auto start_time = time(NULL);
+
+
+namespace knob
+{
+    extern uint64_t warmup_instructions;
+    extern uint64_t simulation_instructions;
+    extern uint8_t  knob_cloudsuite;
+    extern uint8_t  knob_low_bandwidth;
+    extern bool     measure_ipc;
+    extern uint32_t measure_ipc_epoch;
+    extern uint32_t dram_io_freq;
+    extern bool     measure_dram_bw;
+    extern uint64_t measure_dram_bw_epoch;
+    extern bool     measure_cache_acc;
+    extern uint64_t measure_cache_acc_epoch;
+    extern bool l1d_perfect;
+    extern bool l2c_perfect;
+    extern bool llc_perfect;
+    extern bool l1d_semi_perfect;
+    extern bool l2c_semi_perfect;
+    extern bool llc_semi_perfect;
+    extern uint32_t semi_perfect_cache_page_buffer_size;
+}
 
 // For backwards compatibility with older module source.
 champsim::deprecated_clock_cycle current_core_cycle;
@@ -95,9 +122,28 @@ void print_roi_stats(uint32_t cpu, CACHE* cache)
 
     cout << cache->NAME;
     cout << " AVERAGE MISS LATENCY: " << (1.0 * (cache->total_miss_latency)) / TOTAL_MISS << " cycles" << endl;
+
+    cout << cache->NAME;
+    double median = 0;
+    if (cache->miss_latency_vector.size() > 0) {
+      sort(cache->miss_latency_vector.begin(), cache->miss_latency_vector.end());
+      if (cache->miss_latency_vector.size() % 2 != 0) {
+        median = (double) cache->miss_latency_vector[cache->miss_latency_vector.size() / 2];
+      }
+      else {
+        median = (double) ((double) cache->miss_latency_vector[cache->miss_latency_vector.size() / 2] 
+                  + cache->miss_latency_vector[(cache->miss_latency_vector.size() / 2) + 1]) / 2.0;
+      }
+      cout << " MEDIAN MISS LATENCY: " << median << endl;
+    }
     // cout << " AVERAGE MISS LATENCY: " <<
     // (cache->total_miss_latency)/TOTAL_MISS << " cycles " <<
     // cache->total_miss_latency << "/" << TOTAL_MISS<< endl;
+    cout << cache->NAME << " prefetch supppression stats" << endl;
+    cout << cache->NAME << " num suppressed prefetches: " << cache->pf_suppressed << endl;
+    cout << cache->NAME << " num addresses marked for suppression: " << cache->pf_addr_suppression.size() << endl;
+    cout << cache->NAME << " num ips marked for suppression: " << cache->ip_suppression.size() << endl;
+    cout << cache->NAME << " memory traffic: " << TOTAL_MISS << endl;
   }
 }
 
@@ -138,7 +184,7 @@ void print_branch_stats()
   for (uint32_t i = 0; i < NUM_CPUS; i++) {
     cout << endl << "CPU " << i << " Branch Prediction Accuracy: ";
     cout << (100.0 * (ooo_cpu[i]->num_branch - ooo_cpu[i]->branch_mispredictions)) / ooo_cpu[i]->num_branch;
-    cout << "% MPKI: " << (1000.0 * ooo_cpu[i]->branch_mispredictions) / (ooo_cpu[i]->num_retired - warmup_instructions);
+    cout << "% MPKI: " << (1000.0 * ooo_cpu[i]->branch_mispredictions) / (ooo_cpu[i]->num_retired - knob::warmup_instructions);
     cout << " Average ROB Occupancy at Mispredict: " << (1.0 * ooo_cpu[i]->total_rob_occupancy_at_branch_mispredict) / ooo_cpu[i]->branch_mispredictions
          << endl;
 
@@ -316,8 +362,14 @@ int main(int argc, char** argv)
 
   // initialize knobs
   uint8_t show_heartbeat = 1;
+  char cwd[500];
+  if (getcwd(cwd, sizeof(cwd)) != NULL) {
+       printf("Current working dir: %s\n", cwd);
+   }
 
   // check to see if knobs changed using getopt_long()
+  // parse_args(argc, argv);
+
   int traces_encountered = 0;
   static struct option long_options[] = {{"warmup_instructions", required_argument, 0, 'w'},
                                          {"simulation_instructions", required_argument, 0, 'i'},
@@ -330,10 +382,10 @@ int main(int argc, char** argv)
   while ((c = getopt_long_only(argc, argv, "w:i:hc", long_options, NULL)) != -1 && !traces_encountered) {
     switch (c) {
     case 'w':
-      warmup_instructions = atol(optarg);
+      knob::warmup_instructions = atol(optarg);
       break;
     case 'i':
-      simulation_instructions = atol(optarg);
+      knob::simulation_instructions = atol(optarg);
       break;
     case 'h':
       show_heartbeat = 0;
@@ -349,8 +401,8 @@ int main(int argc, char** argv)
     }
   }
 
-  cout << "Warmup Instructions: " << warmup_instructions << endl;
-  cout << "Simulation Instructions: " << simulation_instructions << endl;
+  cout << "Warmup Instructions: " << knob::warmup_instructions << endl;
+  cout << "Simulation Instructions: " << knob::simulation_instructions << endl;
   cout << "Number of CPUs: " << NUM_CPUS << endl;
 
   long long int dram_size = DRAM_CHANNELS * DRAM_RANKS * DRAM_BANKS * DRAM_ROWS * DRAM_COLUMNS * BLOCK_SIZE / 1024 / 1024; // in MiB
@@ -367,7 +419,21 @@ int main(int argc, char** argv)
   std::cout << "VirtualMemory page size: " << PAGE_SIZE << " log2_page_size: " << LOG2_PAGE_SIZE << std::endl;
 
   std::cout << std::endl;
-  for (int i = optind; i < argc; i++) {
+
+  // find -traces arg
+  bool found_traces = false;
+  int trace_index = 0;
+  for (int i = 0; i < argc; i++) {
+    if (strcmp(argv[i], "-traces") == 0) {
+      found_traces = true;
+      trace_index = i;
+      break;
+    }
+  }
+  std::cout << "trace: " << argv[trace_index+1] << endl;
+
+  
+  for (int i = trace_index+1; i < argc; i++) {
     std::cout << "CPU " << traces.size() << " runs " << argv[i] << std::endl;
 
     traces.push_back(get_tracereader(argv[i], traces.size(), knob_cloudsuite));
@@ -442,9 +508,21 @@ int main(int argc, char** argv)
         ooo_cpu[i]->last_sim_cycle = ooo_cpu[i]->current_cycle;
       }
 
+      if (log_ipc_10M && (ooo_cpu[i]->current_cycle - ooo_cpu[i]->last_interval_cycle) >= STAT_PRINTING_PERIOD) {
+        float heartbeat_ipc = (1.0 * ooo_cpu[i]->num_retired - ooo_cpu[i]->last_interval_num_instr) / (ooo_cpu[i]->current_cycle - ooo_cpu[i]->last_interval_cycle);
+        cout << "CPU stats: " << i << " instructions: " << ooo_cpu[i]->num_retired << " cycles: " << ooo_cpu[i]->current_cycle;
+        cout << "10M interval CPU stats: " << i << " instructions: " << ooo_cpu[i]->num_retired - ooo_cpu[i]->last_interval_num_instr << " cycles: " << ooo_cpu[i]->current_cycle - ooo_cpu[i]->last_interval_cycle << endl;
+        cout << "10M cycle interval ipc: " << heartbeat_ipc << endl;
+
+        ooo_cpu[i]->last_interval_cycle = ooo_cpu[i]->current_cycle;
+        ooo_cpu[i]->last_interval_num_instr = ooo_cpu[i]->num_retired;
+      }
+
+
+
       // check for warmup
       // warmup complete
-      if ((warmup_complete[i] == 0) && (ooo_cpu[i]->num_retired > warmup_instructions)) {
+      if ((warmup_complete[i] == 0) && (ooo_cpu[i]->num_retired > knob::warmup_instructions)) {
         warmup_complete[i] = 1;
         all_warmup_complete++;
       }
@@ -456,7 +534,7 @@ int main(int argc, char** argv)
 
       // simulation complete
       if ((all_warmup_complete > NUM_CPUS) && (simulation_complete[i] == 0)
-          && (ooo_cpu[i]->num_retired >= (ooo_cpu[i]->begin_sim_instr + simulation_instructions))) {
+          && (ooo_cpu[i]->num_retired >= (ooo_cpu[i]->begin_sim_instr + knob::simulation_instructions))) {
         simulation_complete[i] = 1;
         ooo_cpu[i]->finish_sim_instr = ooo_cpu[i]->num_retired - ooo_cpu[i]->begin_sim_instr;
         ooo_cpu[i]->finish_sim_cycle = ooo_cpu[i]->current_cycle - ooo_cpu[i]->begin_sim_cycle;

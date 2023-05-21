@@ -17,9 +17,12 @@
 class BLOCK
 {
 public:
-  bool valid = false, prefetch = false, dirty = false;
+  bool valid = false, prefetch = false, dirty = false, prefetch_until_evict = false;
 
   uint64_t address = 0, v_address = 0, tag = 0, data = 0, ip = 0, cpu = 0, instr_id = 0;
+  uint64_t signature = 0; uint64_t evicted_demand_address = 0; bool possible_pollution = false;
+  bool pollution = false;
+  double dram_availability = 0.0;
 
   // replacement state
   uint32_t lru = std::numeric_limits<uint32_t>::max() >> 1;
@@ -37,6 +40,8 @@ public:
    * >0 : new queue occupancy
    *
    */
+  double dram_availability;
+  int dram_occupancy;
 
   const unsigned fill_level;
   virtual int add_rq(PACKET* packet) = 0;
@@ -44,6 +49,7 @@ public:
   virtual int add_pq(PACKET* packet) = 0;
   virtual uint32_t get_occupancy(uint8_t queue_type, uint64_t address) = 0;
   virtual uint32_t get_size(uint8_t queue_type, uint64_t address) = 0;
+  virtual uint32_t get_bank_occupancy(uint8_t queue_type, uint64_t address) = 0;
 
   explicit MemoryRequestConsumer(unsigned fill_level) : fill_level(fill_level) {}
 };

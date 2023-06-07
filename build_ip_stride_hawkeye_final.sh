@@ -3,8 +3,8 @@
 # Build
 mkdir -p bin
 rm -f bin/champsim
-./config.sh bo_percore_hawkeye_final_dyn.json
-make -j8
+./config.sh ip_stride_hawkeye_final.json
+make
 
 # Sanity check
 echo ""
@@ -17,10 +17,10 @@ fi
 echo "${BOLD}ChampSim is successfully built"
 echo "Branch Predictor: Perceptron"
 echo "L1D Prefetcher: no"
-echo "L2C Prefetcher: bo_percore"
-echo "LLC Replacement: hawkeye_final_dyn"
+echo "L2C Prefetcher: ip_stride"
+echo "LLC Replacement: hawkeye_final"
 echo "Cores: 1"
-BINARY_NAME="perceptron-no-bo_percore-hawkeye_final_dyn-1core"
+BINARY_NAME="perceptron-no-ip_stride-hawkeye_final-1core"
 echo "Binary: bin/${BINARY_NAME}${NORMAL}"
 echo ""
 mv bin/champsim bin/${BINARY_NAME}

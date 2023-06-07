@@ -73,9 +73,8 @@
     "L2C": {
         "sets": 1024,
         "ways": 8,
-        "rq_size": 32,
         "wq_size": 32,
-        "pq_size": 32,
+        "pq_size": 16,
         "mshr_size": 32,
         "latency": 10,
         "max_read": 1,
@@ -83,7 +82,7 @@
         "prefetch_as_load": false,
         "virtual_prefetch": false,
         "prefetch_activate": "LOAD,PREFETCH",
-        "prefetcher": "bo_percore"
+        "prefetcher": "no"
     },
 
     "ITLB": {
@@ -154,12 +153,12 @@
         "prefetch_as_load": false,
         "virtual_prefetch": false,
         "prefetch_activate": "LOAD,PREFETCH",
-        "prefetcher": "no",
+        "prefetcher": "next_line",
         "replacement": "hawkeye_final_dyn"
     },
 
     "physical_memory": {
-        "frequency": 800,
+        "frequency": 3200,
         "channels": 1,
         "ranks": 1,
         "banks": 8,

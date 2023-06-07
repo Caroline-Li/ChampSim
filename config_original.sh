@@ -43,7 +43,6 @@ const_names = {
     'page_size': 'PAGE_SIZE',
     'heartbeat_frequency': 'STAT_PRINTING_PERIOD',
     'num_cores': 'NUM_CPUS',
-    'cache_accuracy_levels': 'CACHE_ACC_LEVELS',
     'physical_memory': {
         'io_freq': 'DRAM_IO_FREQ',
         'channels': 'DRAM_CHANNELS',
@@ -57,15 +56,15 @@ const_names = {
         'tRP': 'tRP_DRAM_NANOSECONDS',
         'tRCD': 'tRCD_DRAM_NANOSECONDS',
         'tCAS': 'tCAS_DRAM_NANOSECONDS',
-        'turn_around_time': 'DBUS_TURN_AROUND_NANOSECONDS',
-        'bandwidth_levels': 'DRAM_BW_LEVELS'
+        'turn_around_time': 'DBUS_TURN_AROUND_NANOSECONDS'
     }
 }
 
 ###
 # Begin default core model definition
 ###
-default_root = { 'executable_name': 'bin/champsim', 'block_size': 64, 'page_size': 4096, 'heartbeat_frequency': 10000000, 'num_cores': 1, 'cache_accuracy_levels': 10, 'DIB': {}, 'L1I': {}, 'L1D': {}, 'L2C': {}, 'ITLB': {}, 'DTLB': {}, 'STLB': {}, 'LLC': {}, 'physical_memory': {}, 'virtual_memory': {}}
+
+default_root = { 'executable_name': 'bin/champsim', 'block_size': 64, 'page_size': 4096, 'heartbeat_frequency': 10000000, 'num_cores': 1, 'DIB': {}, 'L1I': {}, 'L1D': {}, 'L2C': {}, 'ITLB': {}, 'DTLB': {}, 'STLB': {}, 'LLC': {}, 'physical_memory': {}, 'virtual_memory': {}}
 
 # Read the config file
 if len(sys.argv) >= 2:
@@ -84,7 +83,7 @@ default_itlb = { 'sets': 16, 'ways': 4, 'rq_size': 16, 'wq_size': 16, 'pq_size':
 default_dtlb = { 'sets': 16, 'ways': 4, 'rq_size': 16, 'wq_size': 16, 'pq_size': 0, 'mshr_size': 8, 'latency': 1, 'fill_latency': 1, 'max_read': 2, 'max_write': 2, 'prefetch_as_load': False, 'virtual_prefetch': False, 'wq_check_full_addr': True, 'prefetch_activate': 'LOAD,PREFETCH', 'prefetcher': 'no', 'replacement': 'lru'}
 default_stlb = { 'sets': 128, 'ways': 12, 'rq_size': 32, 'wq_size': 32, 'pq_size': 0, 'mshr_size': 16, 'latency': 8, 'fill_latency': 1, 'max_read': 1, 'max_write': 1, 'prefetch_as_load': False, 'virtual_prefetch': False, 'wq_check_full_addr': False, 'prefetch_activate': 'LOAD,PREFETCH', 'prefetcher': 'no', 'replacement': 'lru'}
 default_llc  = { 'sets': 2048*config_file['num_cores'], 'ways': 16, 'rq_size': 32*config_file['num_cores'], 'wq_size': 32*config_file['num_cores'], 'pq_size': 32*config_file['num_cores'], 'mshr_size': 64*config_file['num_cores'], 'latency': 20, 'fill_latency': 1, 'max_read': config_file['num_cores'], 'max_write': config_file['num_cores'], 'prefetch_as_load': False, 'virtual_prefetch': False, 'wq_check_full_addr': False, 'prefetch_activate': 'LOAD,PREFETCH', 'prefetcher': 'no', 'replacement': 'lru', 'name': 'LLC', 'lower_level': 'DRAM' }
-default_pmem = { 'name': 'DRAM', 'frequency': 3200, 'channels': 1, 'ranks': 1, 'banks': 8, 'rows': 65536, 'columns': 128, 'lines_per_column': 8, 'channel_width': 8, 'wq_size': 64, 'rq_size': 64, 'tRP': 12.5, 'tRCD': 12.5, 'tCAS': 12.5, 'turn_around_time': 7.5, 'bandwidth_levels': 4}
+default_pmem = { 'name': 'DRAM', 'frequency': 3200, 'channels': 1, 'ranks': 1, 'banks': 8, 'rows': 65536, 'columns': 128, 'lines_per_column': 8, 'channel_width': 8, 'wq_size': 64, 'rq_size': 64, 'tRP': 12.5, 'tRCD': 12.5, 'tCAS': 12.5, 'turn_around_time': 7.5 }
 default_vmem = { 'size': 8589934592, 'num_levels': 5, 'minor_fault_penalty': 200 }
 default_ptw = { 'pscl5_set' : 1, 'pscl5_way' : 2, 'pscl4_set' : 1, 'pscl4_way': 4, 'pscl3_set' : 2, 'pscl3_way' : 4, 'pscl2_set' : 4, 'pscl2_way': 8, 'ptw_rq_size': 16, 'ptw_mshr_size': 5, 'ptw_max_read': 2, 'ptw_max_write': 2}
 
@@ -119,8 +118,6 @@ original_size = len(cores)
 if original_size <= config_file['num_cores']:
     for i in range(original_size, config_file['num_cores']):
         cores.append(copy.deepcopy(cores[(i-1) % original_size]))
-        cores[-1]['name'] = 'cpu' + str(i)
-        cores[-1]['index'] = i
 else:
     cores = cores[:(config_file['num_cores'] - original_size)]
 
@@ -541,11 +538,11 @@ with open('inc/ooo_cpu_modules.inc', 'wt') as wfp:
     wfp.write('\n}\n')
     wfp.write('\n')
 
-    wfp.write('\n'.join('uint32_t {1}(uint64_t, uint8_t, uint8_t, uint32_t, uint64_t, uint64_t);'.format(*i) for i in ipref_cache_ops))
-    wfp.write('\nuint32_t impl_prefetcher_cache_operate(uint64_t v_addr, uint8_t cache_hit, uint8_t prefetch_hit, uint32_t metadata_in, uint64_t instr_id, uint64_t curr_cycle)\n{\n    ')
-    wfp.write('\n    '.join('if (ipref_type == ipref_t::{}) return {}(v_addr, cache_hit, prefetch_hit, metadata_in, instr_id, curr_cycle);'.format(*i) for i in ipref_cache_ops))
-    wfp.write('\n    throw std::invalid_argument("Instruction prefetcher module not found");')
-    wfp.write('\n}\n')
+    wfp.write('\n'.join('uint32_t {1}(uint64_t, uint8_t, uint8_t, uint32_t);'.format(*i) for i in ipref_cache_ops))
+    #wfp.write('\nuint32_t impl_prefetcher_cache_operate(uint64_t v_addr, uint8_t cache_hit, uint8_t prefetch_hit, uint32_t metadata_in)\n{\n    ')
+    #wfp.write('\n    '.join('if (ipref_type == ipref_t::{}) return {}(v_addr, cache_hit, prefetch_hit, metadata_in);'.format(*i) for i in ipref_cache_ops))
+    #wfp.write('\n    throw std::invalid_argument("Instruction prefetcher module not found");')
+    #wfp.write('\n}\n')
     wfp.write('\n')
 
     wfp.write('\n'.join('void {1}();'.format(*i) for i in ipref_cycle_ops))
@@ -555,9 +552,9 @@ with open('inc/ooo_cpu_modules.inc', 'wt') as wfp:
     wfp.write('\n}\n')
     wfp.write('\n')
 
-    wfp.write('\n'.join('uint32_t {1}(uint64_t, uint32_t, uint32_t, uint8_t, uint64_t, uint32_t, uint64_t);'.format(*i) for i in ipref_fill))
-    #wfp.write('\nuint32_t impl_prefetcher_cache_fill(uint64_t v_addr, uint32_t set, uint32_t way, uint8_t prefetch, uint64_t evicted_v_addr, uint32_t metadata_in, uint64_t curr_cycle)\n{\n    ')
-    #wfp.write('\n    '.join('if (ipref_type == ipref_t::{}) return {}(v_addr, set, way, prefetch, evicted_v_addr, metadata_in, curr_cycle);'.format(*i) for i in ipref_fill))
+    wfp.write('\n'.join('uint32_t {1}(uint64_t, uint32_t, uint32_t, uint8_t, uint64_t, uint32_t);'.format(*i) for i in ipref_fill))
+    #wfp.write('\nuint32_t impl_prefetcher_cache_fill(uint64_t v_addr, uint32_t set, uint32_t way, uint8_t prefetch, uint64_t evicted_v_addr, uint32_t metadata_in)\n{\n    ')
+    #wfp.write('\n    '.join('if (ipref_type == ipref_t::{}) return {}(v_addr, set, way, prefetch, evicted_v_addr, metadata_in);'.format(*i) for i in ipref_fill))
     #wfp.write('\n    throw std::invalid_argument("Instruction prefetcher module not found");')
     #wfp.write('\n}\n')
     wfp.write('\n')
@@ -628,18 +625,18 @@ with open('inc/cache_modules.inc', 'wt') as wfp:
     wfp.write('\n}\n')
     wfp.write('\n')
 
-    wfp.write('\n'.join('uint32_t {1}(uint64_t, uint64_t, uint8_t, uint8_t, uint32_t, uint64_t, uint64_t);'.format(*p) for p in pref_ops if not p[0].startswith('CPU_REDIRECT')))
-    wfp.write('\nuint32_t impl_prefetcher_cache_operate(uint64_t addr, uint64_t ip, uint8_t cache_hit, uint8_t type, uint32_t metadata_in, uint64_t instr_id, uint64_t curr_cycle)\n{\n    ')
-    pref_ops = { (n, ('ooo_cpu[cpu]->{}(addr, cache_hit, (type == PREFETCH), metadata_in, instr_id, curr_cycle)' if n.startswith('CPU_REDIRECT') else '{}(addr, ip, cache_hit, type, metadata_in, instr_id, curr_cycle)').format(f)) for n,f in pref_ops } ## modify signature for redirect
+    wfp.write('\n'.join('uint32_t {1}(uint64_t, uint64_t, uint8_t, uint8_t, uint32_t);'.format(*p) for p in pref_ops if not p[0].startswith('CPU_REDIRECT')))
+    wfp.write('\nuint32_t impl_prefetcher_cache_operate(uint64_t addr, uint64_t ip, uint8_t cache_hit, uint8_t type, uint32_t metadata_in)\n{\n    ')
+    pref_ops = { (n, ('ooo_cpu[cpu]->{}(addr, cache_hit, (type == PREFETCH), metadata_in)' if n.startswith('CPU_REDIRECT') else '{}(addr, ip, cache_hit, type, metadata_in)').format(f)) for n,f in pref_ops } ## modify signature for redirect
     wfp.write('\n    '.join('if (pref_type == pref_t::{}) return {};'.format(*p) for p in pref_ops))
     wfp.write('\n    throw std::invalid_argument("Data prefetcher module not found");')
     wfp.write('\n}\n')
     wfp.write('\n')
 
-    wfp.write('\n'.join('uint32_t {1}(uint64_t, uint32_t, uint32_t, uint8_t, uint64_t, uint32_t, uint64_t);'.format(*p) for p in pref_fill if not p[0].startswith('CPU_REDIRECT')))
-    wfp.write('\nuint32_t impl_prefetcher_cache_fill(uint64_t addr, uint32_t set, uint32_t way, uint8_t prefetch, uint64_t evicted_addr, uint32_t metadata_in, uint64_t curr_cycle)\n{\n    ')
+    wfp.write('\n'.join('uint32_t {1}(uint64_t, uint32_t, uint32_t, uint8_t, uint64_t, uint32_t);'.format(*p) for p in pref_fill if not p[0].startswith('CPU_REDIRECT')))
+    wfp.write('\nuint32_t impl_prefetcher_cache_fill(uint64_t addr, uint32_t set, uint32_t way, uint8_t prefetch, uint64_t evicted_addr, uint32_t metadata_in)\n{\n    ')
     pref_fill = { (n, ('ooo_cpu[cpu]->' if n.startswith('CPU_REDIRECT') else '') + f) for n,f in pref_fill } ## prepend redirect
-    wfp.write('\n    '.join('if (pref_type == pref_t::{}) return {}(addr, set, way, prefetch, evicted_addr, metadata_in, curr_cycle);'.format(*p) for p in pref_fill))
+    wfp.write('\n    '.join('if (pref_type == pref_t::{}) return {}(addr, set, way, prefetch, evicted_addr, metadata_in);'.format(*p) for p in pref_fill))
     wfp.write('\n    throw std::invalid_argument("Data prefetcher module not found");')
     wfp.write('\n}\n')
     wfp.write('\n')
@@ -672,7 +669,6 @@ with open(constants_header_name, 'wt') as wfp:
     wfp.write(define_log_fmtstr.format(name='page_size').format(names=const_names, config=config_file))
     wfp.write(define_fmtstr.format(name='heartbeat_frequency').format(names=const_names, config=config_file))
     wfp.write(define_fmtstr.format(name='num_cores').format(names=const_names, config=config_file))
-    wfp.write(define_fmtstr.format(name='cache_accuracy_levels').format(names=const_names, config=config_file))
     wfp.write('#define NUM_CACHES ' + str(len(caches)) + 'u\n')
     wfp.write('#define NUM_OPERABLES ' + str(len(cores) + len(memory_system) + 1) + 'u\n')
 

@@ -29,6 +29,7 @@ pmem_fmtstr = 'MEMORY_CONTROLLER {attrs[name]}({attrs[frequency]});\n'
 vmem_fmtstr = 'VirtualMemory vmem({attrs[size]}, 1 << 12, {attrs[num_levels]}, 1, {attrs[minor_fault_penalty]});\n'
 
 module_make_fmtstr = '{1}/%.o: CFLAGS += -I{1}\n{1}/%.o: CXXFLAGS += -I{1}\n{1}/%.o: CXXFLAGS += {2}\nobj/{0}: $(patsubst %.cc,%.o,$(wildcard {1}/*.cc)) $(patsubst %.c,%.o,$(wildcard {1}/*.c))\n\t@mkdir -p $(dir $@)\n\tar -rcs $@ $^\n\n'
+module_make_fmtstr_prefetcher = '{1}/%.o: CFLAGS += -I{1} $(addprefix -I,$(dir $(wildcard {1}/*/)))\n{1}/%.o: CXXFLAGS += -I{1} $(addprefix -I,$(dir $(wildcard {1}/*/)))\n{1}/%.o: CXXFLAGS += {2}\nobj/{0}: $(patsubst %.cc,%.o,$(wildcard {1}/*.cc)) $(patsubst %.c,%.o,$(wildcard {1}/*.c)) $(patsubst %.cc,%.o,$(wildcard {1}/**/*.cc)) $(patsubst %.c,%.o,$(wildcard {1}/**/*.c))\n\t@mkdir -p $(dir $@)\n\tar -rcs $@ $^\n\n'
 
 define_fmtstr = '#define {{names[{name}]}} {{config[{name}]}}ul\n'
 define_nonint_fmtstr = '#define {{names[{name}]}} {{config[{name}]}}\n'
@@ -65,6 +66,7 @@ const_names = {
 ###
 # Begin default core model definition
 ###
+
 default_root = { 'executable_name': 'bin/champsim', 'block_size': 64, 'page_size': 4096, 'heartbeat_frequency': 10000000, 'num_cores': 1, 'cache_accuracy_levels': 10, 'DIB': {}, 'L1I': {}, 'L1D': {}, 'L2C': {}, 'ITLB': {}, 'DTLB': {}, 'STLB': {}, 'LLC': {}, 'physical_memory': {}, 'virtual_memory': {}}
 
 # Read the config file
@@ -119,8 +121,6 @@ original_size = len(cores)
 if original_size <= config_file['num_cores']:
     for i in range(original_size, config_file['num_cores']):
         cores.append(copy.deepcopy(cores[(i-1) % original_size]))
-        cores[-1]['name'] = 'cpu' + str(i)
-        cores[-1]['index'] = i
 else:
     cores = cores[:(config_file['num_cores'] - original_size)]
 
@@ -252,16 +252,24 @@ for cache in caches.values():
         cache['prefetcher_initialize'] = 'pref_' + cache['prefetcher_name'] + '_initialize'
         cache['prefetcher_cache_operate'] = 'pref_' + cache['prefetcher_name'] + '_cache_operate'
         cache['prefetcher_cache_fill'] = 'pref_' + cache['prefetcher_name'] + '_cache_fill'
+        cache['prefetcher_external_cache_fill'] = 'pref_' + cache['prefetcher_name'] + '_external_cache_fill'
         cache['prefetcher_cycle_operate'] = 'pref_' + cache['prefetcher_name'] + '_cycle_operate'
         cache['prefetcher_final_stats'] = 'pref_' + cache['prefetcher_name'] + '_final_stats'
+        cache['prefetcher_broadcast_bw'] = 'pref_' + cache['prefetcher_name'] + '_broadcast_bw'
+        cache['prefetcher_broadcast_ipc'] = 'pref_' + cache['prefetcher_name'] + '_broadcast_ipc'
+        cache['prefetcher_broadcast_accuracy'] = 'pref_' + cache['prefetcher_name'] + '_broadcast_accuracy'
 
         opts = ''
         # These function names should be used in future designs
         opts += ' -Dprefetcher_initialize=' + cache['prefetcher_initialize']
         opts += ' -Dprefetcher_cache_operate=' + cache['prefetcher_cache_operate']
         opts += ' -Dprefetcher_cache_fill=' + cache['prefetcher_cache_fill']
+        opts += ' -Dprefetcher_external_cache_fill=' + cache['prefetcher_external_cache_fill']
         opts += ' -Dprefetcher_cycle_operate=' + cache['prefetcher_cycle_operate']
         opts += ' -Dprefetcher_final_stats=' + cache['prefetcher_final_stats']
+        opts += ' -Dprefetcher_broadcast_bw=' + cache['prefetcher_broadcast_bw']
+        opts += ' -Dprefetcher_broadcast_ipc=' + cache['prefetcher_broadcast_ipc']
+        opts += ' -Dprefetcher_broadcast_accuracy=' + cache['prefetcher_broadcast_accuracy']
         # These function names are deprecated, but we still permit them
         opts += ' -Dl1d_prefetcher_initialize=' + cache['prefetcher_initialize']
         opts += ' -Dl2c_prefetcher_initialize=' + cache['prefetcher_initialize']
@@ -272,6 +280,9 @@ for cache in caches.values():
         opts += ' -Dl1d_prefetcher_cache_fill=' + cache['prefetcher_cache_fill']
         opts += ' -Dl2c_prefetcher_cache_fill=' + cache['prefetcher_cache_fill']
         opts += ' -Dllc_prefetcher_cache_fill=' + cache['prefetcher_cache_fill']
+        opts += ' -Dl1d_prefetcher_external_cache_fill=' + cache['prefetcher_external_cache_fill']
+        opts += ' -Dl2c_prefetcher_external_cache_fill=' + cache['prefetcher_external_cache_fill']
+        opts += ' -Dllc_prefetcher_external_cache_fill=' + cache['prefetcher_external_cache_fill']
         opts += ' -Dl1d_prefetcher_final_stats=' + cache['prefetcher_final_stats']
         opts += ' -Dl2c_prefetcher_final_stats=' + cache['prefetcher_final_stats']
         opts += ' -Dllc_prefetcher_final_stats=' + cache['prefetcher_final_stats']
@@ -333,7 +344,11 @@ for cpu in cores:
     cpu['iprefetcher_cache_operate'] = 'pref_' + cpu['iprefetcher_name'] + '_cache_operate'
     cpu['iprefetcher_cycle_operate'] = 'pref_' + cpu['iprefetcher_name'] + '_cycle_operate'
     cpu['iprefetcher_cache_fill'] = 'pref_' + cpu['iprefetcher_name'] + '_cache_fill'
+    cpu['iprefetcher_external_cache_fill'] = 'pref_' + cpu['iprefetcher_name'] + '_external_cache_fill'
     cpu['iprefetcher_final_stats'] = 'pref_' + cpu['iprefetcher_name'] + '_final_stats'
+    cpu['iprefetcher_broadcast_bw'] = 'pref_' + cpu['iprefetcher_name'] + '_broadcast_bw'
+    cpu['iprefetcher_broadcast_ipc'] = 'pref_' + cpu['iprefetcher_name'] + '_broadcast_ipc'
+    cpu['iprefetcher_broadcast_accuracy'] = 'pref_' + cpu['iprefetcher_name'] + '_broadcast_accuracy'
 
     opts = ''
     # These function names should be used in future designs
@@ -342,13 +357,18 @@ for cpu in cores:
     opts += ' -Dprefetcher_cache_operate=' + cpu['iprefetcher_cache_operate']
     opts += ' -Dprefetcher_cycle_operate=' + cpu['iprefetcher_cycle_operate']
     opts += ' -Dprefetcher_cache_fill=' + cpu['iprefetcher_cache_fill']
+    opts += ' -Dprefetcher_external_cache_fill=' + cpu['iprefetcher_external_cache_fill']
     opts += ' -Dprefetcher_final_stats=' + cpu['iprefetcher_final_stats']
+    opts += ' -Dprefetcher_broadcast_bw=' + cpu['iprefetcher_broadcast_bw']
+    opts += ' -Dprefetcher_broadcast_ipc=' + cpu['iprefetcher_broadcast_ipc']
+    opts += ' -Dprefetcher_broadcast_accuracy=' + cpu['iprefetcher_broadcast_accuracy']
     # These function names are deprecated, but we still permit them
     opts += ' -Dl1i_prefetcher_initialize=' + cpu['iprefetcher_initialize']
     opts += ' -Dl1i_prefetcher_branch_operate=' + cpu['iprefetcher_branch_operate']
     opts += ' -Dl1i_prefetcher_cache_operate=' + cpu['iprefetcher_cache_operate']
     opts += ' -Dl1i_prefetcher_cycle_operate=' + cpu['iprefetcher_cycle_operate']
     opts += ' -Dl1i_prefetcher_cache_fill=' + cpu['iprefetcher_cache_fill']
+    opts += ' -Dl1i_prefetcher_external_cache_fill=' + cpu['iprefetcher_external_cache_fill']
     opts += ' -Dl1i_prefetcher_final_stats=' + cpu['iprefetcher_final_stats']
     libfilenames['pref_' + cpu['iprefetcher_name'] + '.a'] = (fname, opts)
 
@@ -357,6 +377,7 @@ for cpu in cores:
     caches[cpu['L1I']]['prefetcher_initialize'] = cpu['iprefetcher_initialize']
     caches[cpu['L1I']]['prefetcher_cache_operate'] = cpu['iprefetcher_cache_operate']
     caches[cpu['L1I']]['prefetcher_cache_fill'] = cpu['iprefetcher_cache_fill']
+    caches[cpu['L1I']]['prefetcher_external_cache_fill'] = cpu['iprefetcher_external_cache_fill']
     caches[cpu['L1I']]['prefetcher_cycle_operate'] = cpu['iprefetcher_cycle_operate']
     caches[cpu['L1I']]['prefetcher_final_stats'] = cpu['iprefetcher_final_stats']
 
@@ -470,7 +491,11 @@ ipref_branch_ops   = {(c['iprefetcher_name'], c['iprefetcher_branch_operate']) f
 ipref_cache_ops    = {(c['iprefetcher_name'], c['iprefetcher_cache_operate']) for c in cores}
 ipref_cycle_ops    = {(c['iprefetcher_name'], c['iprefetcher_cycle_operate']) for c in cores}
 ipref_fill         = {(c['iprefetcher_name'], c['iprefetcher_cache_fill']) for c in cores}
+ipref_external_fill = {(c['iprefetcher_name'], c['iprefetcher_external_cache_fill']) for c in cores}
 ipref_finals       = {(c['iprefetcher_name'], c['iprefetcher_final_stats']) for c in cores}
+ipref_brdbw        = {(c['iprefetcher_name'], c['iprefetcher_broadcast_bw']) for c in cores}
+ipref_brdipc       = {(c['iprefetcher_name'], c['iprefetcher_broadcast_ipc']) for c in cores}
+ipref_brdacc       = {(c['iprefetcher_name'], c['iprefetcher_broadcast_accuracy']) for c in cores}
 with open('inc/ooo_cpu_modules.inc', 'wt') as wfp:
     wfp.write('enum class bpred_t\n{\n    ')
     wfp.write(',\n    '.join(bpred_names))
@@ -542,10 +567,10 @@ with open('inc/ooo_cpu_modules.inc', 'wt') as wfp:
     wfp.write('\n')
 
     wfp.write('\n'.join('uint32_t {1}(uint64_t, uint8_t, uint8_t, uint32_t, uint64_t, uint64_t);'.format(*i) for i in ipref_cache_ops))
-    wfp.write('\nuint32_t impl_prefetcher_cache_operate(uint64_t v_addr, uint8_t cache_hit, uint8_t prefetch_hit, uint32_t metadata_in, uint64_t instr_id, uint64_t curr_cycle)\n{\n    ')
-    wfp.write('\n    '.join('if (ipref_type == ipref_t::{}) return {}(v_addr, cache_hit, prefetch_hit, metadata_in, instr_id, curr_cycle);'.format(*i) for i in ipref_cache_ops))
-    wfp.write('\n    throw std::invalid_argument("Instruction prefetcher module not found");')
-    wfp.write('\n}\n')
+    #wfp.write('\nuint32_t impl_prefetcher_cache_operate(uint64_t v_addr, uint8_t cache_hit, uint8_t prefetch_hit, uint32_t metadata_in, uint64_t instr_id, uint64_t curr_cycle)\n{\n    ')
+    #wfp.write('\n    '.join('if (ipref_type == ipref_t::{}) return {}(v_addr, cache_hit, prefetch_hit, metadata_in, instr_id, curr_cycle);'.format(*i) for i in ipref_cache_ops))
+    #wfp.write('\n    throw std::invalid_argument("Instruction prefetcher module not found");')
+    #wfp.write('\n}\n')
     wfp.write('\n')
 
     wfp.write('\n'.join('void {1}();'.format(*i) for i in ipref_cycle_ops))
@@ -562,11 +587,39 @@ with open('inc/ooo_cpu_modules.inc', 'wt') as wfp:
     #wfp.write('\n}\n')
     wfp.write('\n')
 
+    wfp.write('\n'.join('void {1}(CACHE*, uint64_t, uint64_t);'.format(*i) for i in ipref_external_fill))
+    #wfp.write('\nuint32_t impl_prefetcher_external_cache_fill(CACHE* cache, uint64_t addr, uint64_t evicted_addr)\n{\n    ')
+    #wfp.write('\n    '.join('if (ipref_type == ipref_t::{}) return {}(cache, addr, evicted_addr);'.format(*i) for i in ipref_external_fill))
+    #wfp.write('\n    throw std::invalid_argument("Instruction prefetcher module not found");')
+    #wfp.write('\n}\n')
+    wfp.write('\n')
+
     wfp.write('\n'.join('void {1}();'.format(*i) for i in ipref_finals))
     #wfp.write('\nvoid impl_prefetcher_final_stats()\n{\n    ')
     #wfp.write('\n    '.join('if (ipref_type == ipref_t::{}) return {}();'.format(*i) for i in ipref_finals))
     #wfp.write('\n    throw std::invalid_argument("Instruction prefetcher module not found");')
     #wfp.write('\n}\n')
+    wfp.write('\n')
+
+    wfp.write('\n'.join('void {1}(uint8_t);'.format(*i) for i in ipref_brdbw))
+    # wfp.write('\nvoid impl_prefetcher_broadcast_bw(uint8_t bw_level)\n{\n    ')
+    # wfp.write('\n    '.join('if (pref_type == pref_t::{}) return {}(bw_level);'.format(*i) for i in ipref_brdbw))
+    # wfp.write('\n    throw std::invalid_argument("Instruction prefetcher module not found");')
+    # wfp.write('\n}\n')
+    wfp.write('\n')
+
+    wfp.write('\n'.join('void {1}(uint8_t);'.format(*i) for i in ipref_brdipc))
+    # wfp.write('\nvoid impl_prefetcher_broadcast_ipc(uint8_t ipc)\n{\n    ')
+    # wfp.write('\n    '.join('if (pref_type == pref_t::{}) return {}(ipc);'.format(*i) for i in ipref_brdipc))
+    # wfp.write('\n    throw std::invalid_argument("Instruction prefetcher module not found");')
+    # wfp.write('\n}\n')
+    wfp.write('\n')
+
+    wfp.write('\n'.join('void {1}(uint32_t);'.format(*i) for i in ipref_brdacc))
+    # wfp.write('\nvoid impl_prefetcher_broadcast_accuracy(uint32_t acc_level)\n{\n    ')
+    # wfp.write('\n    '.join('if (pref_type == pref_t::{}) return {}(acc_level);'.format(*i) for i in ipref_brdacc))
+    # wfp.write('\n    throw std::invalid_argument("Instruction prefetcher module not found");')
+    # wfp.write('\n}\n')
     wfp.write('\n')
 
 # Cache modules file
@@ -579,8 +632,12 @@ pref_names   = {c['prefetcher_name'] for c in caches.values()}
 pref_inits   = {(c['prefetcher_name'], c['prefetcher_initialize']) for c in caches.values()}
 pref_ops     = {(c['prefetcher_name'], c['prefetcher_cache_operate']) for c in caches.values()}
 pref_fill    = {(c['prefetcher_name'], c['prefetcher_cache_fill']) for c in caches.values()}
+pref_external_fill = {(c['prefetcher_name'], c['prefetcher_external_cache_fill']) for c in caches.values()}
 pref_cycles  = {(c['prefetcher_name'], c['prefetcher_cycle_operate']) for c in caches.values()}
 pref_finals  = {(c['prefetcher_name'], c['prefetcher_final_stats']) for c in caches.values()}
+pref_brdbw   = {(c['prefetcher_name'], c['prefetcher_broadcast_bw']) for c in caches.values()}
+pref_brdipc  = {(c['prefetcher_name'], c['prefetcher_broadcast_ipc']) for c in caches.values()}
+pref_brdacc  = {(c['prefetcher_name'], c['prefetcher_broadcast_accuracy']) for c in caches.values()}
 with open('inc/cache_modules.inc', 'wt') as wfp:
     wfp.write('enum class repl_t\n{\n    ')
     wfp.write(',\n    '.join(repl_names))
@@ -644,6 +701,14 @@ with open('inc/cache_modules.inc', 'wt') as wfp:
     wfp.write('\n}\n')
     wfp.write('\n')
 
+    wfp.write('\n'.join('void {1}(CACHE*, uint64_t, uint64_t);'.format(*p) for p in pref_external_fill if not p[0].startswith('CPU_REDIRECT')))
+    wfp.write('\nvoid impl_prefetcher_external_cache_fill(CACHE* cache, uint64_t addr, uint64_t evicted_addr)\n{\n    ')
+    pref_external_fill = { (n, ('ooo_cpu[cpu]->' if n.startswith('CPU_REDIRECT') else '') + f) for n,f in pref_external_fill } ## prepend redirect
+    wfp.write('\n    '.join('if (pref_type == pref_t::{}) return {}(cache, addr, evicted_addr);'.format(*p) for p in pref_external_fill))
+    wfp.write('\n    throw std::invalid_argument("Data prefetcher module not found");')
+    wfp.write('\n}\n')
+    wfp.write('\n')
+
     wfp.write('\n'.join('void {1}();'.format(*p) for p in pref_cycles if not p[0].startswith('CPU_REDIRECT')))
     wfp.write('\nvoid impl_prefetcher_cycle_operate()\n{\n    ')
     pref_cycles = { (n, ('ooo_cpu[cpu]->' if n.startswith('CPU_REDIRECT') else '') + f) for n,f in pref_cycles } ## prepend redirect
@@ -656,6 +721,30 @@ with open('inc/cache_modules.inc', 'wt') as wfp:
     wfp.write('\nvoid impl_prefetcher_final_stats()\n{\n    ')
     pref_finals = { (n, ('ooo_cpu[cpu]->' if n.startswith('CPU_REDIRECT') else '') + f) for n,f in pref_finals } ## prepend redirect
     wfp.write('\n    '.join('if (pref_type == pref_t::{}) return {}();'.format(*p) for p in pref_finals))
+    wfp.write('\n    throw std::invalid_argument("Data prefetcher module not found");')
+    wfp.write('\n}\n')
+    wfp.write('\n')
+
+    wfp.write('\n'.join('void {1}(uint8_t);'.format(*p) for p in pref_brdbw if not p[0].startswith('CPU_REDIRECT')))
+    wfp.write('\nvoid impl_prefetcher_broadcast_bw(uint8_t bw_level)\n{\n    ')
+    pref_brdbw = { (n, ('ooo_cpu[cpu]->' if n.startswith('CPU_REDIRECT') else '') + f) for n,f in pref_brdbw } ## prepend redirect
+    wfp.write('\n    '.join('if (pref_type == pref_t::{}) return {}(bw_level);'.format(*p) for p in pref_brdbw))
+    wfp.write('\n    throw std::invalid_argument("Data prefetcher module not found");')
+    wfp.write('\n}\n')
+    wfp.write('\n')
+
+    wfp.write('\n'.join('void {1}(uint8_t);'.format(*p) for p in pref_brdipc if not p[0].startswith('CPU_REDIRECT')))
+    wfp.write('\nvoid impl_prefetcher_broadcast_ipc(uint8_t ipc)\n{\n    ')
+    pref_brdipc = { (n, ('ooo_cpu[cpu]->' if n.startswith('CPU_REDIRECT') else '') + f) for n,f in pref_brdipc } ## prepend redirect
+    wfp.write('\n    '.join('if (pref_type == pref_t::{}) return {}(ipc);'.format(*p) for p in pref_brdipc))
+    wfp.write('\n    throw std::invalid_argument("Data prefetcher module not found");')
+    wfp.write('\n}\n')
+    wfp.write('\n')
+
+    wfp.write('\n'.join('void {1}(uint32_t);'.format(*p) for p in pref_brdacc if not p[0].startswith('CPU_REDIRECT')))
+    wfp.write('\nvoid impl_prefetcher_broadcast_accuracy(uint32_t acc_level)\n{\n    ')
+    pref_brdacc = { (n, ('ooo_cpu[cpu]->' if n.startswith('CPU_REDIRECT') else '') + f) for n,f in pref_brdacc } ## prepend redirect
+    wfp.write('\n    '.join('if (pref_type == pref_t::{}) return {}(acc_level);'.format(*p) for p in pref_brdacc ))
     wfp.write('\n    throw std::invalid_argument("Data prefetcher module not found");')
     wfp.write('\n}\n')
     wfp.write('\n')
@@ -690,7 +779,7 @@ with open('Makefile', 'wt') as wfp:
     wfp.write('CXX := ' + config_file.get('CXX', 'g++') + '\n')
     wfp.write('CFLAGS := ' + config_file.get('CFLAGS', '-Wall -O3') + ' -std=gnu99\n')
     wfp.write('CXXFLAGS := ' + config_file.get('CXXFLAGS', '-Wall -O3') + ' -std=c++17\n')
-    wfp.write('CPPFLAGS := ' + config_file.get('CPPFLAGS', '') + ' -Iinc -MMD -MP\n')
+    wfp.write('CPPFLAGS := ' + config_file.get('CPPFLAGS', '') + ' -Iinc -MMD -MP -fno-new-ttp-matching\n')
     wfp.write('LDFLAGS := ' + config_file.get('LDFLAGS', '') + '\n')
     wfp.write('LDLIBS := ' + config_file.get('LDLIBS', '') + '\n')
     wfp.write('\n')
@@ -709,7 +798,11 @@ with open('Makefile', 'wt') as wfp:
     wfp.write('\t$(CXX) $(LDFLAGS) -o $@ $^ $(LDLIBS)\n\n')
 
     for k,v in libfilenames.items():
-        wfp.write(module_make_fmtstr.format(k, *v))
+        #if k == 'pref_pprefetcherDmulti.a':
+        if k.startswith('pref'):
+            wfp.write(module_make_fmtstr_prefetcher.format(k, *v))
+        else:
+            wfp.write(module_make_fmtstr.format(k, *v))
 
     wfp.write('-include $(wildcard src/*.d)\n')
     for v in libfilenames.values():
@@ -719,4 +812,3 @@ with open('Makefile', 'wt') as wfp:
 # Configuration cache
 with open(config_cache_name, 'wt') as wfp:
     json.dump(libfilenames, wfp)
-

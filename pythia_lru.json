@@ -3,6 +3,7 @@
     "block_size": 64,
     "page_size": 4096,
     "heartbeat_frequency": 10000000,
+    "cache_accuracy_levels": 10,
     "num_cores": 1,
 
     "ooo_cpu": [
@@ -75,7 +76,7 @@
         "ways": 8,
         "rq_size": 32,
         "wq_size": 32,
-        "pq_size": 32,
+        "pq_size": 16,
         "mshr_size": 32,
         "latency": 10,
         "max_read": 1,
@@ -83,7 +84,7 @@
         "prefetch_as_load": false,
         "virtual_prefetch": false,
         "prefetch_activate": "LOAD,PREFETCH",
-        "prefetcher": "bo_percore"
+        "prefetcher": "pythia"
     },
 
     "ITLB": {
@@ -155,11 +156,11 @@
         "virtual_prefetch": false,
         "prefetch_activate": "LOAD,PREFETCH",
         "prefetcher": "no",
-        "replacement": "hawkeye_final_dyn"
+        "replacement": "lru"
     },
 
     "physical_memory": {
-        "frequency": 800,
+        "frequency": 3200,
         "channels": 1,
         "ranks": 1,
         "banks": 8,
@@ -171,7 +172,8 @@
         "tRP": 12.5,
         "tRCD": 12.5,
         "tCAS": 12.5,
-        "turn_around_time": 7.5
+        "turn_around_time": 7.5,
+        "bandwidth_levels": 4
     },
 
     "virtual_memory": {

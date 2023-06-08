@@ -56,10 +56,17 @@ class Tracer {
         std::map<uint64_t, pair<uint8_t, uint64_t>> current_k_map;
 
         std::map<uint64_t, std::vector<int>> ip_k_map;
+
+        std::map<uint64_t, pair<int, int>> cacheline_accuracy_map;
+        std::map<uint64_t, pair<int, int>> ip_accuracy_map;
+
+        std::map<uint64_t, pair<bool, uint64_t>> current_k_pmiss_map;
+
+        double accuracy_threshold = 0.1;
         
         Tracer();
         void add_new_access(uint64_t signature, bool prediction, bool hit, uint32_t type, uint64_t core_clock_cycle, uint64_t pc);
-        void update_eviction(uint64_t signature, uint64_t core_clock_cycle);
+        void update_eviction(uint64_t signature, uint64_t core_clock_cycle, uint64_t ip);
         void update_pc_map(uint64_t ip, uint64_t cacheline);
         void generate_k_stats(void);
         void print_k_stats(void);
@@ -80,6 +87,23 @@ class Tracer {
         void print_ip_k_map_stats(void);
 
         uint8_t get_current_k(uint64_t cacheline);
+
+        int get_accurate_counter_cacheline(uint64_t cacheline);
+
+        int get_total_counter_cacheline(uint64_t cacheline);
+
+        int get_accurate_counter_ip(uint64_t ip);
+
+        int get_total_counter_ip(uint64_t ip);
+
+        void clear_cacheline_accuracy_map(void);
+
+        void clear_ip_accuracy_map(void);
+
+        void print_ip_accuracy_map(void);
+
+        void print_cacheline_accuracy_map(void);
+
 };
 #define CACHE_LINE(a) (a >> LOG2_BLOCK_SIZE)
 

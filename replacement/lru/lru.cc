@@ -3,7 +3,10 @@
 
 #include "cache.h"
 #include "util.h"
-
+#include "prefetch_ip_suppress_filter.h"
+#include "perceptron_filter_feature_test.h"
+extern Prefetch_Filter pf_filter;
+extern Prefetch_Feature_Filter pf_feature_filter;
 void CACHE::initialize_replacement() {}
 
 // find replacement victim
@@ -30,4 +33,11 @@ void CACHE::update_replacement_state(uint32_t cpu, uint32_t set, uint32_t way, u
   std::next(begin, way)->lru = 0; // promote to the MRU position
 }
 
-void CACHE::replacement_final_stats() {}
+void CACHE::replacement_final_stats() {
+  if (NAME == "LLC" && PERCEPTRON_IP_FILTER) {
+    pf_filter.print_perceptrons();
+  }
+  if (NAME == "LLC" && FEATURE_TEST) {
+    pf_feature_filter.print_perceptrons();
+  }
+}

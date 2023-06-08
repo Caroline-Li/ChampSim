@@ -363,7 +363,7 @@ uint32_t CACHE::prefetcher_cache_operate(uint64_t addr, uint64_t ip, uint8_t cac
         unsigned int num_prefetched = 0;
         for(unsigned int i=0; i<candidates.size(); i++)
         {
-            int ret = prefetch_line(candidates[i], FILL_LLC, addr);
+            int ret = prefetch_line(candidates[i], FILL_LLC, i, ip, 0, 0);
             if (ret == 1)
             {
                 predictions++;
@@ -456,7 +456,7 @@ void CACHE::inform_tlb_eviction(uint64_t insert_page_addr, uint64_t evict_page_a
         bool ret = isb.oci.get_physical_address(phy_addr, isb.prefetch_buffer.buffer[i]);
         if(ret){
             uint64_t candidate = phy_addr;
-            prefetch_line(candidate, FILL_LLC, 0);
+            prefetch_line(candidate, FILL_LLC, i, 0, 0, 0);
             isb.prefetch_buffer.issue(i);
             prefetch_buffer_issue++;
         //    cout << hex << "       " << isb.prefetch_buffer.buffer[i] << " " << phy_addr << dec << " --- " << ret << endl;

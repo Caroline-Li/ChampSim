@@ -28,11 +28,13 @@ using namespace std;
 // greater than 63. However, with pages larger than 4KB, it would be beneficial to consider
 // larger offsets.
 
+#define START_DEGREE 4
+
 typedef long long t_addr;
 #define NOFFSETS 46
 int OFFSET[NOFFSETS] = {1,-1,2,-2,3,-3,4,-4,5,-5,6,-6,7,-7,8,-8,9,-9,10,-10,11,-11,12,-12,13,-13,14,-14,15,-15,16,-16,18,-18,20,-20,24,-24,30,-30,32,-32,36,-36,40,-40};
 #define DEFAULT_OFFSET 1
-#define SCORE_MAX 31
+#define SCORE_MAX 63
 #define ROUND_MAX 100
 #define RRINDEX 6
 #define RRTAG 12
@@ -64,6 +66,8 @@ class BO_STATE
 
     // 1 prefetch bit per L2 cache line : 256x8 = 2048 bits 
 
+    int degree;
+    int offset_index;
 
     struct offsets_scores {
         int score[NOFFSETS];    // log2 SCORE_MAX = 5 bits per entry
@@ -311,6 +315,41 @@ void BO_STATE::os_learn_best_offset(t_addr lineaddr)
   }
   INCREMENT(os.p,NOFFSETS); // prepare to test the next offset
 }
+// void BO_STATE::os_learn_best_offset(t_addr lineaddr)
+// {
+//   for (int i = 0; i < NOFFSETS; i++) {
+//     int testoffset = OFFSET[i];
+//     t_addr testlineaddr = lineaddr - testoffset;
+
+//     if (SAMEPAGE(lineaddr,testlineaddr) && rr_hit(testlineaddr)) {
+//       // the current line would likely have been prefetched successfully with that offset
+//       // ==> increment the score 
+//       os.score[i]++;
+//       if (os.score[i] >= os.max_score) {
+//         os.max_score = os.score[i];
+//         os.best_offset = testoffset;
+//       }
+//     }
+//   }
+//   if (os.p == (NOFFSETS-1)) {
+//     // one round finished
+//     os.round++;
+
+//     if ((os.max_score == SCORE_MAX) || (os.round == ROUND_MAX)) {
+//       // learning phase is finished, update the prefetch offset
+//       prefetch_offset = (os.best_offset != 0)? os.best_offset : DEFAULT_OFFSET;
+
+//       if (os.max_score <= BAD_SCORE) {
+//         // prefetch accuracy is likely to be very low ==> turn the prefetch off 
+//         prefetch_offset = 0;
+//       }
+//       // new learning phase starts
+//       os_reset();
+//       return;
+//     }
+//   }
+//   INCREMENT(os.p,NOFFSETS); // prepare to test the next offset
+// }
 
 
 //######################################################################################
@@ -327,11 +366,12 @@ void bo_l2c_prefetcher_initialize()
         bo[cpu].rr_init();
         bo[cpu].os_reset();
         bo[cpu].dq_init();
+        bo[cpu].degree = START_DEGREE;
     }
 }
 
 void bo_l2c_prefetcher_operate(uint64_t addr, uint64_t ip, uint8_t cache_hit, uint8_t type,
-                               CACHE* cache, uint64_t *trigger_addr, uint64_t *target_offset, uint32_t cpu) 
+                               CACHE* cache, uint64_t *trigger_addr, uint64_t *target_offset, uint64_t* score, uint32_t cpu) 
 {
     t_addr lineaddr = addr >> LOGLINE;
 
@@ -356,12 +396,14 @@ void bo_l2c_prefetcher_operate(uint64_t addr, uint64_t ip, uint8_t cache_hit, ui
         *trigger_addr = lineaddr;
         //*target_addr = lineaddr+offset;
         *target_offset = offset;
+
+        *score = bo[cpu].os.max_score;
     }
 }
 
 
-void bo_issue_prefetcher(CACHE* cache, uint64_t ip, uint64_t trigger_addr, uint64_t target_addr, int level) {
-    cache->prefetch_line(ip , trigger_addr<<LOGLINE, target_addr<<LOGLINE, level, 0);
+int bo_issue_prefetcher(CACHE* cache, uint64_t ip, uint64_t trigger_addr, uint64_t target_addr, int level, int degree, uint64_t prefetch_offset, uint64_t score) {
+    return cache->prefetch_line(ip, trigger_addr<<LOGLINE, target_addr<<LOGLINE, level, degree, trigger_addr, prefetch_offset, score);
 }
 
 

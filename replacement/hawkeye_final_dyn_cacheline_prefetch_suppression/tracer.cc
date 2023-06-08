@@ -51,6 +51,8 @@ void Tracer::add_new_access(uint64_t signature, bool prediction, bool hit, uint3
         interval_map[signature].accesses.push_back(a);
         if (!hit) {
             num_total_prefetch_fills++;
+            current_k_pmiss_map[signature].first = true;
+            current_k_pmiss_map[signature].second = ip;
         }
         num_total_prefetches++;
         if (current_k_map[signature].first == 0) {
@@ -86,17 +88,27 @@ void Tracer::add_new_access(uint64_t signature, bool prediction, bool hit, uint3
         interval_map[signature].last_demand_index = interval_map[signature].current_index + 1;
         num_total_demands++;
 
+        // update accuracy counters
+        if (hit && current_k_pmiss_map[signature].first) {
+            current_k_pmiss_map[signature].first = false;
+            cacheline_accuracy_map[signature].first++;
+            ip_accuracy_map[current_k_pmiss_map[signature].second].first++;
+
+            cacheline_accuracy_map[signature].second++;
+            ip_accuracy_map[current_k_pmiss_map[signature].second].second++;
+        }
+
         if (current_k_map[signature].first > 0) {
             // k_predictor.add_training(current_k_map[signature].second, pc_history_map[ip], current_k_map[signature].first - 1);
-            k_predictor.add_training(signature, pc_history_map[ip], current_k_map[signature].first - 1);
-            if (pc_history_map.find(ip) == pc_history_map.end()) {
-                std::queue<uint8_t> history_q;
-                pc_history_map[ip] = std::move(history_q); 
-            }
-            if (pc_history_map[ip].size() == HISTORY_SIZE) {
-                pc_history_map[ip].pop();
-            }
-            pc_history_map[ip].push(current_k_map[signature].first);
+            // k_predictor.add_training(signature, pc_history_map[ip], current_k_map[signature].first - 1);
+            // if (pc_history_map.find(ip) == pc_history_map.end()) {
+            //     std::queue<uint8_t> history_q;
+            //     pc_history_map[ip] = std::move(history_q); 
+            // }
+            // if (pc_history_map[ip].size() == HISTORY_SIZE) {
+            //     pc_history_map[ip].pop();
+            // }
+            // pc_history_map[ip].push(current_k_map[signature].first);
 
             // std::cout << "pc history map" << std::endl;
             // int size = pc_history_map[ip].size();
@@ -107,11 +119,11 @@ void Tracer::add_new_access(uint64_t signature, bool prediction, bool hit, uint3
             // }
             // std::cout << std::endl;
 
-            if (k_list_map_dyn.find(signature) == k_list_map_dyn.end()) {
-                std::vector<int> v;
-                k_list_map_dyn[signature] = std::move(v);
-            }
-            k_list_map_dyn[signature].push_back(current_k_map[signature].first);
+            // if (k_list_map_dyn.find(signature) == k_list_map_dyn.end()) {
+            //     std::vector<int> v;
+            //     k_list_map_dyn[signature] = std::move(v);
+            // }
+            // k_list_map_dyn[signature].push_back(current_k_map[signature].first);
             // if (predicted_k_map.find(signature) != predicted_k_map.end() && predicted_k_map[signature].size() > 0) {
             //     predicted_k_map[signature].back().actual = current_k_map[signature];
             // }
@@ -120,18 +132,19 @@ void Tracer::add_new_access(uint64_t signature, bool prediction, bool hit, uint3
             //     predicted_k_map[ip].back().actual = current_k_map[signature].first;
             // }
             // predicted_k_map[current_k_map[signature].second].back().actual = current_k_map[signature].first - 1;
-            predicted_k_map[signature].back().actual = current_k_map[signature].first - 1;
-
-            current_k_map[signature].first = 0;
+            // predicted_k_map[signature].back().actual = current_k_map[signature].first - 1;
 
             if (ip_k_map.find(current_k_map[signature].second) == ip_k_map.end()) {
                 std::vector<int> v;
                 ip_k_map[current_k_map[signature].second] = std::move(v);
             }
+
+            // update accuracy counters
             ip_k_map[current_k_map[signature].second].push_back(current_k_map[signature].first);
         }
     }
     interval_map[signature].current_index++;
+
 
     if (!hit) {
         interval_map[signature].last_miss_index = interval_map[signature].current_index;
@@ -139,7 +152,7 @@ void Tracer::add_new_access(uint64_t signature, bool prediction, bool hit, uint3
     num_total_accesses++;
 }
 
-void Tracer::update_eviction(uint64_t signature, uint64_t current_core_cycle) {
+void Tracer::update_eviction(uint64_t signature, uint64_t current_core_cycle, uint64_t ip) {
     if (interval_map.find(signature) == interval_map.end()) {
         std::cout << "can't find interval access!" << std::endl;
         return;
@@ -153,6 +166,13 @@ void Tracer::update_eviction(uint64_t signature, uint64_t current_core_cycle) {
     };
     interval_map[signature].accesses.push_back(a);
     interval_map[signature].current_index++;
+
+    // update accuracy
+    if (current_k_pmiss_map[signature].first) {
+        current_k_pmiss_map[signature].first = false;
+        cacheline_accuracy_map[signature].second++;
+        ip_accuracy_map[current_k_pmiss_map[signature].second].second++;
+    }
 }
 
 void Tracer::generate_k_stats(void) {
@@ -639,12 +659,17 @@ void Tracer::print_pc_freq_map_prefetch(void) {
     double total_pc_freq = 0.0;
     int num_pcs = 0;
     for (auto& item : sorted_pc_freq) {
-        if (total_pc_freq >= 0.8) {
-            num_pcs++;
+        if (total_pc_freq >= 80.0) {
             break;
         }
-        std::cout << "PC: " << item.first << " freq: " << item.second << std::endl;
+        std::cout << "PC: " << item.first << " freq: " << item.second;
         total_pc_freq += item.second;
+        num_pcs++;
+        std::cout << " k_list: ";
+        for (auto& k : ip_k_map[item.first]) {
+            std::cout << k << ", ";
+        }
+        std::cout << std::endl;
     }
     std::cout << "num pcs to reach 0.8 pc frequency: " << num_pcs << std::endl;
 }
@@ -662,6 +687,64 @@ void Tracer::print_ip_k_map_stats(void) {
 
 uint8_t Tracer::get_current_k(uint64_t cacheline) {
     return current_k_map[cacheline].first;
+}
+
+int Tracer::get_accurate_counter_cacheline(uint64_t cacheline) {
+    return cacheline_accuracy_map[cacheline].first;
+}
+
+int Tracer::get_total_counter_cacheline(uint64_t cacheline) {
+    return cacheline_accuracy_map[cacheline].second;
+}
+
+int Tracer::get_accurate_counter_ip(uint64_t ip) {
+    return ip_accuracy_map[ip].first;
+}
+
+int Tracer::get_total_counter_ip(uint64_t ip) {
+    return ip_accuracy_map[ip].second;
+}
+
+void Tracer::clear_cacheline_accuracy_map(void) {
+    cacheline_accuracy_map.clear();
+}
+
+void Tracer::clear_ip_accuracy_map(void) {
+    ip_accuracy_map.clear();
+}
+
+void Tracer::print_ip_accuracy_map(void) {
+    for (auto& item : ip_accuracy_map) {
+        std::cout << "ip: " << item.first;
+        int accurate = item.second.first;
+        int total = item.second.second;
+
+        std::cout << " accurate: " << accurate << " total: " << total;
+
+        if (total > 0) {
+            std::cout << " accuracy: " << (double) accurate/(double)total << std::endl;
+        }
+        else {
+            std::cout << " accuracy: " << "nan" << std::endl;
+        }
+    }
+}
+
+void Tracer::print_cacheline_accuracy_map(void) {
+    for (auto& item : ip_accuracy_map) {
+        std::cout << "cacheline: " << item.first;
+        int accurate = item.second.first;
+        int total = item.second.second;
+
+        std::cout << " accurate: " << accurate << " total: " << total;
+
+        if (total > 0) {
+            std::cout << " accuracy: " << (double) accurate/(double)total << std::endl;
+        }
+        else {
+            std::cout << " accuracy: " << "nan" << std::endl;
+        }
+    }
 }
 
 

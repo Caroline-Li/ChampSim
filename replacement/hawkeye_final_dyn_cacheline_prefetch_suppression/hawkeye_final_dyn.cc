@@ -18,10 +18,6 @@
 #include "prefetch_reduction_predictor.h"
 #include <cassert>
 #include <utility> 
-#include "fdp_control.h"
-#include "prefetch_ip_suppress_filter.h"
-#include "perceptron_filter_feature_test.h"
-#include "decision_tree.h"
 //#define NUM_CORE 1
 #define LLC_SETS 2048
 // #define LLC_WAYS NUM_WAY
@@ -45,17 +41,14 @@ uint64_t perset_mytimer[LLC_SETS];
 // Hawkeye Predictors for demand and prefetch requests
 // Predictor with 2K entries and 5-bit counter per entry
 // Budget = 2048*5/8 bytes = 1.2KB
-
+#define MAX_SHCT 31
+#define SHCT_SIZE_BITS 14
 //#define SHCT_SIZE_BITS 11
-
-// #include "hawkeye_predictor.h"
+#define SHCT_SIZE (1<<SHCT_SIZE_BITS)
+#include "hawkeye_predictor.h"
 HAWKEYE_PC_PREDICTOR* demand_predictor;  //Predictor
-extern HAWKEYE_PC_PREDICTOR* prefetch_predictor;  //Predictor
-extern HAWKEYE_REUSE_PREDICTOR* prefetch_reuse_predictor;
-extern Prefetch_Filter pf_filter;
-extern Prefetch_Feature_Filter pf_feature_filter;
-// extern PERCEPTRON_ PERC_;
-extern Decision_Tree_Predictor decision_tree_predictor;
+HAWKEYE_PC_PREDICTOR* prefetch_predictor;  //Predictor
+
 #define OPTGEN_VECTOR_SIZE 128
 #include "optgen.h"
 OPTgen perset_optgen[LLC_SETS]; // per-set occupancy vectors; we only use 64 of these
@@ -77,6 +70,7 @@ OPTgen perset_optgen[LLC_SETS]; // per-set occupancy vectors; we only use 64 of 
 #define CACHE_LINE(a) (a >> LOG2_BLOCK_SIZE)
 vector<map<uint64_t, ADDR_INFO> > addr_history; // Sampler
 
+Tracer tracer;
 Prefetch_Reduction_Predictor k_predictor;
 
 vector<uint64_t> dd_interval_distribution;
@@ -88,49 +82,10 @@ uint64_t dd_accuracy, dp_accuracy, pd_accuracy, pp_accuracy;
 uint64_t dd_cached, dp_cached, pd_cached, pp_cached;
 
 uint64_t threshold[NUM_CPUS];
-uint64_t llc_miss_counter;
-uint64_t total_llc_misses;
-uint64_t pollution_total;
-uint64_t pollution_interval_counter;
-uint64_t demand_miss_interval_counter;
-uint64_t demand_miss_total;
-map<uint64_t, bool> pollution_map;
-
-extern FDP_Control fdp_control;
 #define EPOCH_LENGTH 100000000
-#define TRAINING_LENGTH 25000000
-#define INTERVAL_LENGTH 10000000
+#define TRAINING_LENGTH 50000000
 
-struct INTERVAL
-{
-    uint64_t last_interval_cycle[NUM_CPUS];
-    bool is_complete()
-    {
-        bool complete = true;
-        
-        for(unsigned int i=0; i<NUM_CPUS; i++)
-        {
-            uint64_t cycles_elapsed = (current_core_cycle[i] - last_interval_cycle[i]);
-            if(cycles_elapsed < INTERVAL_LENGTH)
-            {
-                complete = false;
-                break;
-            }
-        }
-
-        return complete;
-    }
-
-    void reset()
-    {
-        for(unsigned int i=0; i<NUM_CPUS; i++)
-        {
-            last_interval_cycle[i] = current_core_cycle[i];
-        }
-    }
-
-};
-
+double accuracy_threshold = 0.0;
 bool training_complete = false;
 struct EPOCH
 {
@@ -276,7 +231,6 @@ struct EPOCH
 };
 
 EPOCH myepoch;
-INTERVAL myinterval;
 
 
 // initialize replacement state
@@ -303,7 +257,6 @@ void CACHE::initialize_replacement()
 
     demand_predictor = new HAWKEYE_PC_PREDICTOR();
     prefetch_predictor = new HAWKEYE_PC_PREDICTOR();
-    prefetch_reuse_predictor = new HAWKEYE_REUSE_PREDICTOR();
 
     pp_intervals = 0;
     dp_intervals = 0;
@@ -323,8 +276,6 @@ void CACHE::initialize_replacement()
 
     myepoch.reset();
     myepoch.new_epoch();
-
-    myinterval.reset();
     for(unsigned int i=0; i<NUM_CPUS; i++)
         threshold[i] = 5*NUM_CPUS;
 
@@ -341,39 +292,7 @@ uint32_t CACHE::find_victim(uint32_t cpu, uint64_t instr_id, uint32_t set, const
     for (uint32_t i=start; i<end; i++)
         if (block[i].lru == maxRRPV) {
             tracer.update_eviction(CACHE_LINE(block[i].address), this->current_cycle, ip);
-
-            // cache pollution estimate
-            if (type == PREFETCH) 
-            {
-                pollution_map[CACHE_LINE(block[i].address)] = true;
-                fdp_control.pollution_map[CACHE_LINE(block[i].address)] = true;
-                if (PERCEPTRON_IP_FILTER) {
-                    pf_filter.pollution_map[CACHE_LINE(block[i].address)] = {ip, true};
-                    pf_filter.pollution_map_all[CACHE_LINE(block[i].address)] = true;
-                }
-            }
-            else {
-                if (PERCEPTRON_IP_FILTER) {
-                    pf_filter.pollution_map_all[CACHE_LINE(block[i].address)] = false;
-                }
-            }
             // tracer.update_eviction(ip, this->current_cycle);
-            fdp_control.num_useful_blocks_evicted++;
-            if (NAME == "LLC" && PERCEPTRON_IP_FILTER) {
-                pf_filter.num_useful_blocks_evicted++;
-            }
-
-
-            // reuse predictor
-            if (prefetch_reuse_predictor->get_mark(CACHE_LINE(block[i].address))) {
-                if (prefetch_reuse_predictor->get_reuse(CACHE_LINE(block[i].address))) {
-                    prefetch_reuse_predictor->increment(CACHE_LINE(block[i].address));
-                }
-                else {
-                    prefetch_reuse_predictor->decrement(CACHE_LINE(block[i].address));
-                }
-                prefetch_reuse_predictor->clear_entry(CACHE_LINE(block[i].address));
-            }
             return i - start;
         }
 
@@ -401,37 +320,7 @@ uint32_t CACHE::find_victim(uint32_t cpu, uint64_t instr_id, uint32_t set, const
             demand_predictor->decrement(block[lru_victim_index].signature);
     }
     tracer.update_eviction(CACHE_LINE(block[lru_victim_index].address), this->current_cycle, ip);
-    // cache pollution estimate
-    if (type == PREFETCH) 
-    {
-        pollution_map[CACHE_LINE(block[lru_victim_index].address)] = true;
-        fdp_control.pollution_map[CACHE_LINE(block[lru_victim_index].address)] = true;
-        if (PERCEPTRON_IP_FILTER) {
-            pf_filter.pollution_map[CACHE_LINE(block[lru_victim_index].address)] = {ip, true};
-            pf_filter.pollution_map_all[CACHE_LINE(block[lru_victim_index].address)] = true;
-        }
-    }
-    else {
-        if (PERCEPTRON_IP_FILTER) {
-            pf_filter.pollution_map_all[CACHE_LINE(block[lru_victim_index].address)] = false;
-        }
-    }
     // tracer.update_eviction(ip, this->current_cycle);
-    fdp_control.num_useful_blocks_evicted++;
-    if (NAME == "LLC" && PERCEPTRON_IP_FILTER) {
-        pf_filter.num_useful_blocks_evicted++;
-    }
-
-    // reuse predictor
-    if (prefetch_reuse_predictor->get_mark(CACHE_LINE(block[lru_victim_index].address))) {
-        if (prefetch_reuse_predictor->get_reuse(CACHE_LINE(block[lru_victim_index].address))) {
-            prefetch_reuse_predictor->increment(CACHE_LINE(block[lru_victim_index].address));
-        }
-        else {
-            prefetch_reuse_predictor->decrement(CACHE_LINE(block[lru_victim_index].address));
-        }
-        prefetch_reuse_predictor->clear_entry(CACHE_LINE(block[lru_victim_index].address));
-    }
     return lru_victim;
 
     // WE SHOULD NOT REACH HERE
@@ -479,94 +368,16 @@ void CACHE::update_replacement_state(uint32_t cpu, uint32_t set, uint32_t way, u
     // cout << "start update replacement state" << endl;
     uint64_t paddr = (full_addr >> 6) << 6;
 
-    // update APF
-    if (ADAPTIVE_PREFETCH_FILTER) {
-        pf_filter.update_apf_with_demand_access(CACHE_LINE(full_addr));
-    }
-
 
     if(type == PREFETCH)
     {
-        if (!hit) {
+        if (!hit)
             block[set*NUM_WAY + way].prefetch = true;
-            block[set*NUM_WAY + way].ip = ip;
-            // if (PERCEPTRON_IP_FILTER) {
-            //     pf_filter.ip_accuracy_map[ip].second++;
-            // }
-
-            pollution_map[CACHE_LINE(full_addr)] = false;
-            fdp_control.pollution_map[CACHE_LINE(full_addr)] = false;
-            pf_filter.pollution_map[CACHE_LINE(full_addr)] = {ip, false};
-            pf_filter.pollution_map_all[CACHE_LINE(full_addr)] = false;
-            pf_filter.degree_pollution_tracker_map[CACHE_LINE(full_addr)] = {0, false};
-        }
-            
-
-        // if (FDP && !hit) {
-        //     fdp_control.prefetch_fill_total++;
-        // }
-        // if (FDP_INTERVAL && !hit) {
-        //     fdp_control.prefetch_fill_interval_counter++;
-        // }
 
     }
     else {
-        // block[set*NUM_WAY + way].prefetch = false;
+        block[set*NUM_WAY + way].prefetch = false;
 
-        if (!hit) {
-            demand_miss_total++;
-            demand_miss_interval_counter++;
-
-            if (!prefetch_reuse_predictor->get_prediction(CACHE_LINE(full_addr))) {
-                prefetch_reuse_predictor->increment(CACHE_LINE(full_addr));
-            }
-            
-            if (FDP) {
-                fdp_control.demand_miss_total++;
-            }
-            if (FDP_INTERVAL) {
-                fdp_control.demand_miss_interval_counter++;
-            }
-            // if (PERCEPTRON_IP_FILTER) {
-            //     pf_filter.demand_miss_interval_counter++;
-            //     pf_filter.demand_miss_total++;
-            // }
-
-            if (pollution_map.find(CACHE_LINE(full_addr)) != pollution_map.end() && pollution_map[CACHE_LINE(full_addr)])  {
-                pollution_total++;
-                tracer.pollution_total++;
-                pollution_interval_counter++;
-                if (COST_MODEL) {
-                    fdp_control.cache_pollution(2.0);
-                }
-                pollution_map[CACHE_LINE(full_addr)] = false;
-            }
-            if (fdp_control.pollution_map.find(CACHE_LINE(full_addr)) != fdp_control.pollution_map.end() && fdp_control.pollution_map[CACHE_LINE(full_addr)])  {
-                if (FDP) {
-                    fdp_control.pollution_total++;
-                }
-                if (FDP_INTERVAL) {
-                    fdp_control.pollution_interval_counter++;
-                }
-                fdp_control.pollution_map[CACHE_LINE(full_addr)] = false;
-            }
-            if (PERCEPTRON_IP_FILTER && pf_filter.pollution_map.find(CACHE_LINE(full_addr)) != pf_filter.pollution_map.end() && pf_filter.pollution_map[CACHE_LINE(full_addr)].second) {
-                pf_filter.ip_pollution_map[pf_filter.pollution_map[CACHE_LINE(full_addr)].first]++;
-            }
-            if (PERCEPTRON_IP_FILTER && pf_filter.pollution_map_all.find(CACHE_LINE(full_addr)) != pf_filter.pollution_map_all.end() && pf_filter.pollution_map_all[CACHE_LINE(full_addr)]) {
-                pf_filter.pollution_interval_counter++;
-                pf_filter.pollution_map_all[CACHE_LINE(full_addr)] = false;
-            }
-            if (PERCEPTRON_IP_FILTER && pf_filter.degree_pollution_tracker_map.find(CACHE_LINE(full_addr)) != pf_filter.degree_pollution_tracker_map.end() && pf_filter.degree_pollution_tracker_map[CACHE_LINE(full_addr)].second) {
-                // cout << "degree: " << pf_filter.degree_pollution_tracker_map[CACHE_LINE(full_addr)].first << endl;
-                pf_filter.degree_pollution_map[pf_filter.degree_pollution_tracker_map[CACHE_LINE(full_addr)].first]++;
-            }
-        }
-
-    }
-    if (!hit) {
-        llc_miss_counter++;
-        total_llc_misses++;
     }
 
     //Ignore writebacks
@@ -830,36 +641,35 @@ void CACHE::update_replacement_state(uint32_t cpu, uint32_t set, uint32_t way, u
     // int accurate = tracer.get_accurate_counter_ip(ip);
     // int total = tracer.get_total_counter_ip(ip);
 
-    // if (training_complete && (type == PREFETCH) && total > 0) {
+    // if (training_complete && (type == PREFETCH)) {
     //     double accuracy = (double) accurate/(double)total;
-    //     double impact = (double) total / (double) tracer.num_total_prefetch_fills;
 
-    //     if (accuracy <= accuracy_threshold) {
+    //     if (accuracy == 0.0) {
     //         ip_suppression.insert(ip);
-    //         cout << "ip marked: " << ip << " accuracy: " << accuracy << " impact: " << impact << endl; 
+    //         cout << "ip marked: " << ip << " accuracy: " << accuracy << endl; 
     //     }
+    //     // else if ((ip_suppression.find(ip) != ip_suppression.end()) && (accuracy > accuracy_threshold)) {
+    //     //     ip_suppression.erase(ip);
+    //     //     cout << "ip erased: " << ip << " accuracy: " << accuracy << endl;
+    //     // }
     // }
-    // int accurate = tracer.get_accurate_counter_cacheline(CACHE_LINE(full_addr));
-    // int total = tracer.get_total_counter_ip(CACHE_LINE(full_addr));
+    int accurate = tracer.get_accurate_counter_cacheline(CACHE_LINE(full_addr));
+    int total = tracer.get_total_counter_cacheline(CACHE_LINE(full_addr));
 
-    // if (training_complete && type == PREFETCH && total > 0) {
-    //     double accuracy = accurate/total;
+    if (training_complete && type == PREFETCH && total > 0) {
+        double accuracy = accurate/total;
 
-    //     if (accuracy == accuracy_threshold) {
-    //         pf_addr_suppression.insert(full_addr);
-    //         cout << "addr marked: " << full_addr << "accuracy: " << accuracy << endl; 
-    //     }
-    // }
+        if (accuracy == accuracy_threshold) {
+            pf_addr_suppression.insert(full_addr);
+            cout << "addr marked: " << full_addr << "accuracy: " << accuracy << endl; 
+        }
+    }
 
     block[set*NUM_WAY + way].signature = ip;
 
     //Set RRIP values and age cache-friendly line
-    if(!new_prediction) {
+    if(!new_prediction)
         block[set*NUM_WAY + way].lru = maxRRPV;
-        if (type == PREFETCH) {
-            prefetch_reuse_predictor->mark(CACHE_LINE(full_addr), ip);
-        }
-    }
     else
     {
         block[set*NUM_WAY + way].lru = 0;
@@ -883,67 +693,10 @@ void CACHE::update_replacement_state(uint32_t cpu, uint32_t set, uint32_t way, u
     if (!training_complete && myepoch.training_complete()) {
         cout << "training complete!" << endl;
         training_complete = true;
-        cout << "ip accuracy map" << endl;
-        tracer.print_ip_accuracy_map();
-        // cout << "cacheline accuracy map" << endl;
-        // tracer.print_cacheline_accuracy_map();
-    }
-
-    if (myinterval.is_complete()) 
-    {
-        myinterval.reset();
-
-        cout << "memory traffic per thousand cycles: " << (double) tracer.memory_request_interval_counter / 10000.0 << endl;
-        cout << "dram average latency: " << (double) total_miss_latency / (double) total_llc_misses << endl;
-        cout << "cycle coverage interval: " << tracer.cycle_coverage_interval << endl;
-        double median = 0;
-        if (miss_latency_vector.size() > 0) {
-            sort(miss_latency_vector.begin(), miss_latency_vector.end());
-            if (miss_latency_vector.size() % 2 != 0) {
-                median = (double) miss_latency_vector[miss_latency_vector.size() / 2];
-            }
-            else {
-                median = (double) ((double) miss_latency_vector[miss_latency_vector.size() / 2] 
-                    + miss_latency_vector[(miss_latency_vector.size() / 2) + 1]) / 2.0;
-            }
-        cout << "dram median latency: : " << median << endl;
-        }
-
-        cout << "useful prefetch interval counter: " << tracer.useful_prefetch_interval_counter << endl;
-        cout << "prefetch_fill_interval_counter: " << tracer.prefetch_fill_interval_counter << endl;
-        cout << "interval accuracy: " << (double) tracer.useful_prefetch_interval_counter / (double) tracer.prefetch_fill_interval_counter << endl;
-        cout << "interval prefetches per thousand cycles: " << (double) tracer.prefetch_fill_interval_counter / 10000.0 << endl;
-
-        cout << "late prefetch interval counter: " << tracer.late_interval_counter << endl;
-        cout << "interval latenes: " << (double) tracer.late_interval_counter / (double) tracer.useful_prefetch_interval_counter << endl;
-
-
-        cout << "pollution_total: " << pollution_total << endl;
-        cout << "demand miss total: " << demand_miss_total << endl;
-        cout << "total pollution percent: " << (double) pollution_total / (double) demand_miss_total << endl;
-        cout << "pollution_interval_counter: " << pollution_interval_counter << endl;
-        cout << "demand miss interval counter: " << demand_miss_interval_counter << endl;
-        cout << "interval pollution percent: " << (double) pollution_interval_counter / (double) demand_miss_interval_counter << endl;
-
-        cout << "avg dram occupancy at prefetch issue: " << (double) tracer.dram_occupancy_at_prefetch_issue / (double) tracer.prefetch_fill_interval_counter << endl;
-        double dram_availability_avg = (double) tracer.dram_availability_at_prefetch_issue / (double) tracer.prefetch_fill_interval_counter;
-        cout << "avg dram availability at prefetch fill issue: " << dram_availability_avg / (double) tracer.dram_rq_size << endl;
-        
-        llc_miss_counter = 0;
-        tracer.memory_request_interval_counter = 0;
-        pollution_interval_counter = 0;
-        demand_miss_interval_counter = 0;
-        tracer.prefetch_fill_interval_counter = 0;
-        tracer.useful_prefetch_interval_counter = 0;
-        tracer.late_interval_counter = 0;
-        tracer.dram_occupancy_at_prefetch_issue = 0;
-        tracer.num_issued_prefetches_interval = 0;
-        tracer.dram_availability_at_prefetch_issue = 0;
-
-        // prefetch_reuse_predictor->print_SHCT();
-        if (ADAPTIVE_PREFETCH_FILTER) {
-            pf_filter.print_FC();
-        }
+        // cout << "ip accuracy map" << endl;
+        // tracer.print_ip_accuracy_map();
+        cout << "cacheline accuracy map" << endl;
+        tracer.print_cacheline_accuracy_map();
     }
 
 
@@ -951,25 +704,22 @@ void CACHE::update_replacement_state(uint32_t cpu, uint32_t set, uint32_t way, u
     {
         myepoch.new_epoch();
         myepoch.reset();
-        // training_complete = false;
+        training_complete = false;
         // cout << "ip suppressed" << endl;
         // for (auto it = ip_suppression.begin(); it != ip_suppression.end(); ++it) {
         //     cout << "ip: " << *it << endl;
         // }  
-        // cout << "pf addr suppressed" << endl;
-        // for (auto it = pf_addr_suppression.begin(); it != pf_addr_suppression.end(); ++it) {
-        //     cout << "ip: " << *it << endl;
-        // }   
-        // 
-        // ip_suppression.clear();
+        cout << "pf addr suppressed" << endl;
+        for (auto it = pf_addr_suppression.begin(); it != pf_addr_suppression.end(); ++it) {
+            cout << "ip: " << *it << endl;
+        }   
+        pf_addr_suppression.clear();
+        ip_suppression.clear();
         // cout << "ip accuracy map" << endl;
         // tracer.print_ip_accuracy_map();
 
-        // tracer.generate_prefetch_interval();
-        // tracer.generate_prefetcher_accuracy();
-
-        // cout << "cacheline accuracy map" << endl;
-        // tracer.print_cacheline_accuracy_map();
+        cout << "cacheline accuracy map" << endl;
+        tracer.print_cacheline_accuracy_map();
         // tracer.clear_cacheline_accuracy_map();
         // tracer.clear_ip_accuracy_map();
 
@@ -1029,35 +779,6 @@ void CACHE::replacement_final_stats()
 
     cout << "Average latency: " << (double)average_latency/(double)average_latency_count << endl;
 
-    cout << "pollution_total: " << pollution_total << endl;
-    cout << "demand miss total: " << demand_miss_total << endl;
-    cout << "pollution percent: " << (double) pollution_total / (double) demand_miss_total << endl;
-
-    cout << "total llc misses: " << total_llc_misses << endl;
-
-    cout << "memory traffic total: " << (double) tracer.memory_request_total << endl;
-    cout << "dram average latency: " << (double) total_miss_latency / (double) total_llc_misses << endl;
-    double median = 0;
-    if (miss_latency_vector.size() > 0) {
-        sort(miss_latency_vector.begin(), miss_latency_vector.end());
-        if (miss_latency_vector.size() % 2 != 0) {
-            median = (double) miss_latency_vector[miss_latency_vector.size() / 2];
-        }
-        else {
-            median = (double) ((double) miss_latency_vector[miss_latency_vector.size() / 2] 
-                + miss_latency_vector[(miss_latency_vector.size() / 2) + 1]) / 2.0;
-        }
-    cout << "dram median latency: : " << median << endl;
-    }
-
-    pf_filter.print_perceptrons();
-    // if (PPF) {
-    //     PERC_.print_perceptron_weights();
-    // }
-    if (FEATURE_TEST) {
-        pf_feature_filter.print_perceptrons();
-    }
-
 
     // tracer.print_pc_map_stats();
     // tracer.generate_k_stats();
@@ -1068,21 +789,7 @@ void CACHE::replacement_final_stats()
     // tracer.get_predictor_accuracy();
     // tracer.generate_timeliness_stats();
     // tracer.print_pc_freq_map_prefetch();
-    tracer.generate_prefetcher_accuracy();
 
-    // more stats
-    tracer.final_prefetcher_accuracy();
-    tracer.final_prefetcher_lateness();
-    tracer.print_memory_request_total();
-    cout << "cycles_saved_by_prefetcher: " << tracer.cycle_coverage << endl;
-
-    if (FDP || FDP_INTERVAL || COST_MODEL || COST_MODEL_INTERVAL) {
-        fdp_control.print_stats();
-    }
-
-    if (DECISION_TREE_FILTERING) {
-        decision_tree_predictor.print_accuracy();
-    }
 
     return;
 }

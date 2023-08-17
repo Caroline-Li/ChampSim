@@ -1,0 +1,2 @@
+default.ini is the default config setting with a prefetching degree of 1
+default_dyn_degree.ini is configured for dynamic degree control up to degree 6

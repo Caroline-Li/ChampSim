@@ -1,0 +1,12 @@
+bwaves_1861B
+bzip2_183B
+GemsFDTD_109B
+gcc_13B
+libquantum_1210B
+milc_360B
+omnetpp_340B
+perlbench_53B
+soplex_66B
+sphinx3_2520B
+xalancbmk_748B
+zeusmp_600B

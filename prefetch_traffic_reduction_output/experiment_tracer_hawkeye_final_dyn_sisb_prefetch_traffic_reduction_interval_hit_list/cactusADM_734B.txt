@@ -1,0 +1,164 @@
+
+*** ChampSim Multicore Out-of-Order Simulator ***
+
+Warmup Instructions: 0
+Simulation Instructions: 200000000
+Number of CPUs: 1
+Off-chip DRAM Size: 4 GiB Channels: 1 Width: 64-bit Data Rate: 3200 MT/s
+
+VirtualMemory physical capacity: 8588881920 num_ppages: 2096895
+VirtualMemory page size: 4096 log2_page_size: 12
+
+CPU 0 runs /scratch/cluster/akanksha/CRCRealTraces/cactusADM_734B.trace.gz
+Basic BTB sets: 1024 ways: 8 indirect buffer size: 4096 RAS size: 64
+Initialize Hawkeye state
+WARNING: The use of 'current_core_cycle[cpu]' is deprecated.
+WARNING: Use 'this->current_cycle' instead.
+Demand/Supply: 0 0
+RD: 0 
+0 
+0 
+Final: 0 0 0 0
+
+Warmup complete CPU 0 instructions: 2 cycles: 56 (Simulation time: 0 hr 0 min 0 sec) 
+
+WARNING: The extended signature CACHE::prefetch_line(ip, base_addr, pf_addr, fill_this_level, prefetch_metadata) is deprecated.
+WARNING: Use CACHE::prefetch_line(pf_addr, fill_this_level, prefetch_metadata) instead.
+Demand/Supply: 543836 44715
+RD: 52 
+255 
+4.90385 
+Final: 12 0 447 0
+Finished CPU 0 instructions: 200000001 cycles: 165572621 cumulative IPC: 1.20793 (Simulation time: 0 hr 51 min 17 sec) 
+
+ChampSim completed all CPUs
+
+Region of Interest Statistics
+
+CPU 0 cumulative IPC: 1.20793 instructions: 200000001 cycles: 165572621
+cpu0_DTLB TOTAL     ACCESS:   42964264  HIT:   39309740  MISS:    3654524
+cpu0_DTLB LOAD      ACCESS:   35309034  HIT:   32809057  MISS:    2499977
+cpu0_DTLB RFO       ACCESS:    7655230  HIT:    6500683  MISS:    1154547
+cpu0_DTLB PREFETCH  ACCESS:          0  HIT:          0  MISS:          0
+cpu0_DTLB WRITEBACK ACCESS:          0  HIT:          0  MISS:          0
+cpu0_DTLB TRANSLATION ACCESS:          0  HIT:          0  MISS:          0
+cpu0_DTLB PREFETCH  REQUESTED:          0  ISSUED:          0  USEFUL:          0  USELESS:          0
+cpu0_DTLB AVERAGE MISS LATENCY: 18.3729 cycles
+cpu0_ITLB TOTAL     ACCESS:    3070495  HIT:    3070487  MISS:          8
+cpu0_ITLB LOAD      ACCESS:    3070495  HIT:    3070487  MISS:          8
+cpu0_ITLB RFO       ACCESS:          0  HIT:          0  MISS:          0
+cpu0_ITLB PREFETCH  ACCESS:          0  HIT:          0  MISS:          0
+cpu0_ITLB WRITEBACK ACCESS:          0  HIT:          0  MISS:          0
+cpu0_ITLB TRANSLATION ACCESS:          0  HIT:          0  MISS:          0
+cpu0_ITLB PREFETCH  REQUESTED:          0  ISSUED:          0  USEFUL:          0  USELESS:          0
+cpu0_ITLB AVERAGE MISS LATENCY: 242.75 cycles
+cpu0_L1I TOTAL     ACCESS:   15831159  HIT:   15830879  MISS:        280
+cpu0_L1I LOAD      ACCESS:   15831159  HIT:   15830879  MISS:        280
+cpu0_L1I RFO       ACCESS:          0  HIT:          0  MISS:          0
+cpu0_L1I PREFETCH  ACCESS:          0  HIT:          0  MISS:          0
+cpu0_L1I WRITEBACK ACCESS:          0  HIT:          0  MISS:          0
+cpu0_L1I TRANSLATION ACCESS:          0  HIT:          0  MISS:          0
+cpu0_L1I PREFETCH  REQUESTED:          0  ISSUED:          0  USEFUL:          0  USELESS:          0
+cpu0_L1I AVERAGE MISS LATENCY: 291.118 cycles
+cpu0_STLB TOTAL     ACCESS:    3654532  HIT:    1781531  MISS:    1873001
+cpu0_STLB LOAD      ACCESS:    2499985  HIT:    1288728  MISS:    1211257
+cpu0_STLB RFO       ACCESS:    1154547  HIT:     492803  MISS:     661744
+cpu0_STLB PREFETCH  ACCESS:          0  HIT:          0  MISS:          0
+cpu0_STLB WRITEBACK ACCESS:          0  HIT:          0  MISS:          0
+cpu0_STLB TRANSLATION ACCESS:          0  HIT:          0  MISS:          0
+cpu0_STLB PREFETCH  REQUESTED:          0  ISSUED:          0  USEFUL:          0  USELESS:          0
+cpu0_STLB AVERAGE MISS LATENCY: 18.1638 cycles
+cpu0_L1D TOTAL     ACCESS:   75032726  HIT:   72428398  MISS:    2604328
+cpu0_L1D LOAD      ACCESS:   51298090  HIT:   49217705  MISS:    2080385
+cpu0_L1D RFO       ACCESS:   21863636  HIT:   21350274  MISS:     513362
+cpu0_L1D PREFETCH  ACCESS:          0  HIT:          0  MISS:          0
+cpu0_L1D WRITEBACK ACCESS:          0  HIT:          0  MISS:          0
+cpu0_L1D TRANSLATION ACCESS:    1871000  HIT:    1860419  MISS:      10581
+cpu0_L1D PREFETCH  REQUESTED:          0  ISSUED:          0  USEFUL:          0  USELESS:          0
+cpu0_L1D AVERAGE MISS LATENCY: 292.031 cycles
+cpu0_L2C TOTAL     ACCESS:    3639659  HIT:    1873263  MISS:    1766396
+cpu0_L2C LOAD      ACCESS:    2080662  HIT:    1252829  MISS:     827833
+cpu0_L2C RFO       ACCESS:     513362  HIT:        214  MISS:     513148
+cpu0_L2C PREFETCH  ACCESS:     514712  HIT:      90250  MISS:     424462
+cpu0_L2C WRITEBACK ACCESS:     520342  HIT:     519923  MISS:        419
+cpu0_L2C TRANSLATION ACCESS:      10581  HIT:      10047  MISS:        534
+cpu0_L2C PREFETCH  REQUESTED:     515199  ISSUED:     515015  USEFUL:     423250  USELESS:       1195
+cpu0_L2C AVERAGE MISS LATENCY: 493.86 cycles
+LLC TOTAL     ACCESS:    2278226  HIT:     421452  MISS:    1856774
+LLC LOAD      ACCESS:     827790  HIT:      70580  MISS:     757210
+LLC RFO       ACCESS:     513148  HIT:     127142  MISS:     386006
+LLC PREFETCH  ACCESS:     424505  HIT:      90959  MISS:     333546
+LLC WRITEBACK ACCESS:     512249  HIT:     132715  MISS:     379534
+LLC TRANSLATION ACCESS:        534  HIT:         56  MISS:        478
+LLC PREFETCH  REQUESTED:          0  ISSUED:          0  USEFUL:      35570  USELESS:     220528
+LLC AVERAGE MISS LATENCY: 449.878 cycles
+performance stats:
+mapping cache size: 569816
+divergence: 256834
+OPTgen accesses: 5434
+OPTgen hits: 1885
+OPTgen hit rate: 34.689
+Traffic: 5357 98.583
+OPTgen hit rate for core 0: 34.689
+
+
+D-D intervals: 4547 84.3193
+8 8 8 8 8 8 8 8 9 8 8 8 9 8 10 9 8 10 13 12 21 22 25 28 34 40 43 44 61 41 48 60 52 45 37 32 31 29 26 28 21 17 16 12 13 7 9 13 14 16 12 14 13 17 10 13 11 16 18 18 16 16 16 13 14 8 17 8 9 13 8 4 4 4 7 6 7 7 11 10 10 14 15 10 8 8 14 10 14 11 19 14 14 15 14 13 14 10 12 13 9 5 8 4 9 7 11 7 8 4 3 6 6 6 3 3 5 4 3 3 3 2 3 3 1 4 4 1 3 2 2 1 1 1 4 3 3 1 1 4 3 1 4 5 4 4 5 4 4 3 5 4 4 3 5 3 4 3 5 3 3 6 7 4 3 3 7 6 5 5 5 3 4 4 4 5 2 2 3 6 3 4 6 4 3 3 1 0 1 2 4 3 4 2 1 2 3 4 3 6 4 3 6 3 3 4 2 4 1 3 3 5 4 5 4 5 4 7 1 6 2 5 6 3 4 5 5 2 4 5 5 5 4 5 4 3 1 6 2 4 6 6 3 3 3 2 4 3 4 4 3 3 6 4 4 5 5 4 6 3 3 4 3 3 2 4 4 0 5 2 1 5 1 4 3 2 3 2 5 5 3 3 3 2 3 7 4 5 1 2 4 3 3 3 5 7 4 6 3 8 5 5 4 4 5 6 3 4 4 6 1 5 4 2 3 1 2 3 2 2 4 0 2 4 0 3 2 1 2 1 3 3 3 2 1 3 4 2 5 3 5 3 2 4 6 2 3 2 4 5 8 3 6 5 3 4 5 5 5 5 6 3 5 6 6 8 6 6 2 5 5 6 8 3 4 4 4 1 4 3 4 2 3 4 4 2 2 7 3 3 1 2 2 2 2 1 3 2 2 3 1 2 1 2 5 3 2 4 5 2 6 4 4 7 5 4 5 5 6 6 6 6 3 6 3 5 4 4 7 5 4 2 2 5 3 1 5 4 2 4 4 5 4 5 1 3 4 1 4 5 4 2 2 1 3 3 3 5 1 4 3 4 3 4 4 3 3 3 5 5 4 2 4 3 5 6 5 4 4 4 6 5 3 6 2 6 5 3 4 5 5 4 5 6 5 5 4 5 3 3 7 3 5 3 5 4 3 3 2 4 1 3 0 4 1 2 1 2 4 3 1 4 2 0 3 3 2 3 1 3 4 3 5 6 7 7 7 6 4 4 5 4 5 4 1 5 2 1 5 4 4 5 4 5 4 2 3 4 6 2 2 1 6 5 2 2 3 4 5 4 3 5 3 3 4 5 0 2 6 2 3 2 2 6 1 4 4 4 4 2 4 4 4 3 5 3 4 2 7 5 5 4 4 3 3 5 1 4 4 4 4 4 1 2 2 1 1 5 5 3 4 2 4 2 4 1 4 1 4 3 7 3 4 5 3 3 3 3 3 2 3 3 3 1 2 4 4 3 4 2 5 6 6 4 5 4 2 1 2 5 4 6 3 3 1 4 5 4 4 4 1 4 2 5 2 2 2 4 4 3 4 4 2 2 3 0 2 3 1 3 6 3 2 2 5 4 1 3 5 7 3 6 5 5 6 6 6 5 6 5 5 4 5 5 6 4 3 3 3 2 4 5 3 4 1 5 1 6 1 4 1 1 3 4 2 3 2 1 2 5 4 3 3 4 4 2 4 5 0 4 3 5 4 6 5 2 4 5 4 5 5 2 4 5 4 4 5 4 4 4 3 3 5 4 1 3 2 4 4 3 1 4 2 1 1 4 4 2 6 4 3 2 4 5 1 2 3 6 4 3 2 3 4 3 4 3 3 5 4 2 5 2 5 5 5 3 5 5 5 4 4 3 3 2 2 6 4 3 3 2 2 3 3 2 2 6 3 2 4 4 4 3 3 2 1 2 1 2 2 2 2 1 2 2 2 1 1 1 3 0 1 2 1 2 1 2 2 1 1 1 2 3 0 3 2 2 1 3 3 3 0 2 3 2 2 2 1 0 0 1 2 2 1 2 2 1 2 2 2 3 1 2 2 2 2 1 1 2 2 1 3 1 1 2 1 0 0 1 0 0 2 2 0 2 0 1 2 1 2 1 1 2 1 1 0 2 2 2 2 1 0 2 2 1 1 1 1 3 1 2 1 3 1 2 2 2 1 1 1 3 0 1 2 1 0 0 3 2 0 0 1 2 2 0 1 0 1 0 0 1 0 0 1 0 0 0 1 1 
+D-P intervals: 1325 91.6226
+0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 1 1 3 6 0 5 15 15 8 21 15 25 25 36 44 36 29 26 24 24 13 16 11 9 18 12 10 9 9 10 11 10 6 8 3 8 11 21 14 17 9 16 25 31 36 22 21 28 24 28 35 30 16 12 7 10 4 2 11 3 5 7 6 10 14 14 11 14 12 8 9 14 18 18 10 25 17 6 14 12 11 9 14 9 10 13 5 9 10 2 8 7 3 4 2 0 0 3 0 0 0 0 0 1 0 0 0 1 1 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 
+P-D intervals: 887 57.3844
+P-D cached: 89.0643
+0 0 0 0 0 1 0 0 0 1 0 0 0 0 1 0 2 0 2 3 7 13 6 5 16 27 15 27 34 32 43 43 27 29 23 11 27 21 10 16 10 9 9 4 8 3 2 5 5 11 7 10 17 20 10 16 17 24 19 24 22 26 24 17 25 14 14 14 13 12 5 4 2 1 4 4 1 0 0 0 0 0 2 1 0 1 0 0 0 0 0 0 0 0 0 2 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 
+P-P intervals: 486 46.2963
+0 0 0 0 0 0 2 1 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 1 2 2 1 4 3 0 4 7 9 12 9 15 16 16 22 18 22 26 27 22 29 18 21 22 15 26 20 27 12 9 10 8 3 5 5 1 5 0 0 0 0 2 3 2 
+Average latency: 0
+num total interval: 1765983
+num total prefetch intervals: 424505
+percent prefetch interval: 0.240379
+num prefetch_miss_evict_interval: 220628
+num prefetch_hit_evict_interval: 13940
+num prefetch_miss_prefetch_hit: 35592
+num prefetch_hit_prefetch_hit: 21095
+num prefetch_miss_demand_hit: 57423
+num prefetch_hit_demand_hit: 50444
+num prefetch_miss_end_interval: 19867
+num prefetch_hit_end_interval: 5480
+num prefetch_miss_demand_miss: 36
+percent prefetch_miss_evict_interval: 0.51973
+percent prefetch_hit_evict_interval: 0.0328382
+percent prefetch_miss_prefetch_hit: 0.0838435
+percent prefetch_hit_prefetch_hit: 0.0496932
+percent prefetch_miss_demand_hit: 0.13527
+percent prefetch_hit_demand_hit: 0.11883
+percent prefetch_miss_end_interval: 0.0468004
+percent prefetch_hit_end_interval: 0.0129092
+percent prefetch_miss_demand_miss0.13527
+prefetch interval percent sum: 0.999915
+prefetch interval sum: 424469
+num total prefetch fills: 333546
+num total prefetch fills with demand: 222154
+percent prefetch fills with demand: 0.666037
+prefetch traffic reduction total: 136640
+prefetch traffic reduction all total: 299415
+percent prefetch reduction traffic: 0.409659
+percent prefetch reduction traffic all: 0.897672
+percent prefetch reduction demand: 0.615069
+
+DRAM Statistics
+ CHANNEL 0
+ RQ ROW_BUFFER_HIT:      19295  ROW_BUFFER_MISS:    1457930
+ DBUS AVG_CONGESTED_CYCLE:     3.9638
+ WQ ROW_BUFFER_HIT:      24398  ROW_BUFFER_MISS:     473066  FULL:        473
+
+
+CPU 0 Branch Prediction Accuracy: 97.782% MPKI: 0.045315 Average ROB Occupancy at Mispredict: 283.995
+Branch type MPKI
+BRANCH_DIRECT_JUMP: 1.5e-05
+BRANCH_INDIRECT: 0
+BRANCH_CONDITIONAL: 0.04529
+BRANCH_DIRECT_CALL: 5e-06
+BRANCH_INDIRECT_CALL: 0
+BRANCH_RETURN: 5e-06
+
+
+gzip: stdout: Broken pipe

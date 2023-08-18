@@ -1,0 +1,13 @@
++Group="GRAD"
++Project="ARCHITECTURE"
++ProjectDescription="Micro-architectural simulation"
+universe=vanilla
+getenv=true
+Rank=Memory
+notification=Error
+output=CONDOR.libquantum_1210B.OUT
+error=CONDOR.libquantum_1210B.ERR
+log=CONDOR.libquantum_1210B.LOG
+initialdir=output/experiment_tracer_hawkeye_final_dyn_bo_percore_prefetch_traffic_reduction_interval_hit_list
+executable=output/experiment_tracer_hawkeye_final_dyn_bo_percore_prefetch_traffic_reduction_interval_hit_list/libquantum_1210B.sh
+queue

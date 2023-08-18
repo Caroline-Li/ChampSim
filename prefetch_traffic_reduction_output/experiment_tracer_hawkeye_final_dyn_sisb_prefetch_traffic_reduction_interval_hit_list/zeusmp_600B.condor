@@ -1,0 +1,13 @@
++Group="GRAD"
++Project="ARCHITECTURE"
++ProjectDescription="Micro-architectural simulation"
+universe=vanilla
+getenv=true
+Rank=Memory
+notification=Error
+output=CONDOR.zeusmp_600B.OUT
+error=CONDOR.zeusmp_600B.ERR
+log=CONDOR.zeusmp_600B.LOG
+initialdir=output/experiment_tracer_hawkeye_final_dyn_sisb_prefetch_traffic_reduction_interval_hit_list
+executable=output/experiment_tracer_hawkeye_final_dyn_sisb_prefetch_traffic_reduction_interval_hit_list/zeusmp_600B.sh
+queue

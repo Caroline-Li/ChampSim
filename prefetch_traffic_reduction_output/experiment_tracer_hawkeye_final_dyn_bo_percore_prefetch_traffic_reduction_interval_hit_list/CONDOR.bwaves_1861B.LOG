@@ -1,0 +1,98 @@
+000 (5655145.000.000) 10/17 13:36:40 Job submitted from host: <128.83.120.183:39637?addrs=128.83.120.183-39637>
+...
+009 (5655145.000.000) 10/17 13:37:43 Job was aborted by the user.
+	via condor_rm (by user cli23)
+...
+009 (5612349.000.000) 10/17 13:37:43 Job was aborted by the user.
+	via condor_rm (by user cli23)
+...
+000 (5655307.000.000) 10/17 13:38:24 Job submitted from host: <128.83.120.183:39637?addrs=128.83.120.183-39637>
+...
+001 (5655307.000.000) 10/17 13:38:31 Job executing on host: <128.83.144.13:46771?addrs=128.83.144.13-46771>
+...
+006 (5655307.000.000) 10/17 13:38:41 Image size of job updated: 24196
+	24  -  MemoryUsage of job (MB)
+	23932  -  ResidentSetSize of job (KB)
+...
+006 (5655307.000.000) 10/17 13:43:42 Image size of job updated: 70896
+	69  -  MemoryUsage of job (MB)
+	70632  -  ResidentSetSize of job (KB)
+...
+006 (5655307.000.000) 10/17 13:48:42 Image size of job updated: 116656
+	114  -  MemoryUsage of job (MB)
+	116392  -  ResidentSetSize of job (KB)
+...
+006 (5655307.000.000) 10/17 13:53:42 Image size of job updated: 163092
+	160  -  MemoryUsage of job (MB)
+	162828  -  ResidentSetSize of job (KB)
+...
+006 (5655307.000.000) 10/17 13:58:43 Image size of job updated: 209424
+	205  -  MemoryUsage of job (MB)
+	209160  -  ResidentSetSize of job (KB)
+...
+006 (5655307.000.000) 10/17 14:03:43 Image size of job updated: 255888
+	250  -  MemoryUsage of job (MB)
+	255624  -  ResidentSetSize of job (KB)
+...
+006 (5655307.000.000) 10/17 14:08:43 Image size of job updated: 301956
+	295  -  MemoryUsage of job (MB)
+	301692  -  ResidentSetSize of job (KB)
+...
+006 (5655307.000.000) 10/17 14:13:44 Image size of job updated: 348684
+	341  -  MemoryUsage of job (MB)
+	348420  -  ResidentSetSize of job (KB)
+...
+006 (5655307.000.000) 10/17 14:18:45 Image size of job updated: 423528
+	414  -  MemoryUsage of job (MB)
+	423264  -  ResidentSetSize of job (KB)
+...
+006 (5655307.000.000) 10/17 14:23:45 Image size of job updated: 470396
+	460  -  MemoryUsage of job (MB)
+	470132  -  ResidentSetSize of job (KB)
+...
+006 (5655307.000.000) 10/17 14:28:45 Image size of job updated: 511448
+	500  -  MemoryUsage of job (MB)
+	511184  -  ResidentSetSize of job (KB)
+...
+006 (5655307.000.000) 10/17 14:33:46 Image size of job updated: 557648
+	545  -  MemoryUsage of job (MB)
+	557384  -  ResidentSetSize of job (KB)
+...
+006 (5655307.000.000) 10/17 14:38:46 Image size of job updated: 603188
+	589  -  MemoryUsage of job (MB)
+	602924  -  ResidentSetSize of job (KB)
+...
+004 (5655307.000.000) 10/17 14:39:12 Job was evicted.
+	(0) Job was not checkpointed.
+		Usr 0 00:59:37, Sys 0 00:00:50  -  Run Remote Usage
+		Usr 0 00:00:00, Sys 0 00:00:00  -  Run Local Usage
+	0  -  Run Bytes Sent By Job
+	0  -  Run Bytes Received By Job
+	Partitionable Resources :    Usage  Request Allocated 
+	   Cpus                 :     0.98        1         1 
+	   Disk (KB)            :     1           1   8092049 
+	   Gpus                 :                           0 
+	   Memory (MB)          :   589           1     12899 
+...
+001 (5655307.000.000) 10/17 14:40:08 Job executing on host: <128.83.144.244:39233?addrs=128.83.144.244-39233>
+...
+006 (5655307.000.000) 10/17 15:30:23 Image size of job updated: 772476
+	755  -  MemoryUsage of job (MB)
+	772212  -  ResidentSetSize of job (KB)
+...
+005 (5655307.000.000) 10/17 15:31:51 Job terminated.
+	(1) Normal termination (return value 0)
+		Usr 0 00:51:15, Sys 0 00:00:42  -  Run Remote Usage
+		Usr 0 00:00:00, Sys 0 00:00:00  -  Run Local Usage
+		Usr 0 00:51:15, Sys 0 00:00:42  -  Total Remote Usage
+		Usr 0 00:00:00, Sys 0 00:00:00  -  Total Local Usage
+	0  -  Run Bytes Sent By Job
+	0  -  Run Bytes Received By Job
+	0  -  Total Bytes Sent By Job
+	0  -  Total Bytes Received By Job
+	Partitionable Resources :    Usage  Request Allocated 
+	   Cpus                 :     1.01        1         1 
+	   Disk (KB)            :     1           1   2473357 
+	   Gpus                 :                           0 
+	   Memory (MB)          :   755         733      4020 
+...

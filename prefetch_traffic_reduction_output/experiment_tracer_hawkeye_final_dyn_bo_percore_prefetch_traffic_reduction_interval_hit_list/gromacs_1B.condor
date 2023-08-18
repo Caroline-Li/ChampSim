@@ -1,0 +1,13 @@
++Group="GRAD"
++Project="ARCHITECTURE"
++ProjectDescription="Micro-architectural simulation"
+universe=vanilla
+getenv=true
+Rank=Memory
+notification=Error
+output=CONDOR.gromacs_1B.OUT
+error=CONDOR.gromacs_1B.ERR
+log=CONDOR.gromacs_1B.LOG
+initialdir=output/experiment_tracer_hawkeye_final_dyn_bo_percore_prefetch_traffic_reduction_interval_hit_list
+executable=output/experiment_tracer_hawkeye_final_dyn_bo_percore_prefetch_traffic_reduction_interval_hit_list/gromacs_1B.sh
+queue

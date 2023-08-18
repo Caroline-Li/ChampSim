@@ -1,0 +1,13 @@
++Group="GRAD"
++Project="ARCHITECTURE"
++ProjectDescription="Micro-architectural simulation"
+universe=vanilla
+getenv=true
+Rank=Memory
+notification=Error
+output=CONDOR.gobmk_135B.OUT
+error=CONDOR.gobmk_135B.ERR
+log=CONDOR.gobmk_135B.LOG
+initialdir=output/experiment_tracer_hawkeye_final_dyn_sisb_prefetch_traffic_reduction_interval_hit_list
+executable=output/experiment_tracer_hawkeye_final_dyn_sisb_prefetch_traffic_reduction_interval_hit_list/gobmk_135B.sh
+queue

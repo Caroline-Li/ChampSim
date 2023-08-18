@@ -1,0 +1,13 @@
++Group="GRAD"
++Project="ARCHITECTURE"
++ProjectDescription="Micro-architectural simulation"
+universe=vanilla
+getenv=true
+Rank=Memory
+notification=Error
+output=CONDOR.omnetpp_340B.OUT
+error=CONDOR.omnetpp_340B.ERR
+log=CONDOR.omnetpp_340B.LOG
+initialdir=output/experiment_tracer_hawkeye_final_dyn_sisb_prefetch_traffic_reduction_interval_hit_list
+executable=output/experiment_tracer_hawkeye_final_dyn_sisb_prefetch_traffic_reduction_interval_hit_list/omnetpp_340B.sh
+queue

@@ -1,0 +1,53 @@
+000 (5655181.000.000) 10/17 13:37:00 Job submitted from host: <128.83.120.183:39637?addrs=128.83.120.183-39637>
+...
+009 (5655181.000.000) 10/17 13:37:43 Job was aborted by the user.
+	via condor_rm (by user cli23)
+...
+000 (5655301.000.000) 10/17 13:38:15 Job submitted from host: <128.83.120.183:39637?addrs=128.83.120.183-39637>
+...
+001 (5655301.000.000) 10/17 13:38:30 Job executing on host: <128.83.144.15:43309?addrs=128.83.144.15-43309>
+...
+006 (5655301.000.000) 10/17 13:38:40 Image size of job updated: 24292
+	24  -  MemoryUsage of job (MB)
+	24160  -  ResidentSetSize of job (KB)
+...
+006 (5655301.000.000) 10/17 13:43:40 Image size of job updated: 49468
+	49  -  MemoryUsage of job (MB)
+	49336  -  ResidentSetSize of job (KB)
+...
+006 (5655301.000.000) 10/17 13:48:40 Image size of job updated: 67500
+	66  -  MemoryUsage of job (MB)
+	67368  -  ResidentSetSize of job (KB)
+...
+006 (5655301.000.000) 10/17 13:53:41 Image size of job updated: 74252
+	73  -  MemoryUsage of job (MB)
+	74120  -  ResidentSetSize of job (KB)
+...
+006 (5655301.000.000) 10/17 13:58:41 Image size of job updated: 101648
+	100  -  MemoryUsage of job (MB)
+	101516  -  ResidentSetSize of job (KB)
+...
+006 (5655301.000.000) 10/17 14:03:41 Image size of job updated: 109660
+	107  -  MemoryUsage of job (MB)
+	109528  -  ResidentSetSize of job (KB)
+...
+006 (5655301.000.000) 10/17 14:08:42 Image size of job updated: 119164
+	117  -  MemoryUsage of job (MB)
+	119032  -  ResidentSetSize of job (KB)
+...
+005 (5655301.000.000) 10/17 14:13:33 Job terminated.
+	(1) Normal termination (return value 0)
+		Usr 0 00:33:57, Sys 0 00:01:01  -  Run Remote Usage
+		Usr 0 00:00:00, Sys 0 00:00:00  -  Run Local Usage
+		Usr 0 00:33:57, Sys 0 00:01:01  -  Total Remote Usage
+		Usr 0 00:00:00, Sys 0 00:00:00  -  Total Local Usage
+	0  -  Run Bytes Sent By Job
+	0  -  Run Bytes Received By Job
+	0  -  Total Bytes Sent By Job
+	0  -  Total Bytes Received By Job
+	Partitionable Resources :    Usage  Request Allocated 
+	   Cpus                 :     0.99        1         1 
+	   Disk (KB)            :     1           1   8092049 
+	   Gpus                 :                           0 
+	   Memory (MB)          :   117           1     12899 
+...
